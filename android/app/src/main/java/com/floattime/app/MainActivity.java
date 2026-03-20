@@ -8,11 +8,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -20,29 +21,32 @@ import androidx.core.content.ContextCompat;
 
 /**
  * 主界面 - 负责权限申请和服务启动
- * 
- * Android 16 兼容性：
- * - 预测性返回手势默认启用
- * - 无边框设计强制启用
- * - 前台服务需要正确声明类型
  */
 public class MainActivity extends AppCompatActivity {
 
-    private static final int REQUEST_OVERLAY_PERMISSION = 1001;
-    private static final int REQUEST_NOTIFICATION_PERMISSION = 1002;
-    
     private Button startBtn;
     private Button stopBtn;
     private TextView statusText;
+    
+    private ActivityResultLauncher<Intent> overlayPermissionLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // Android 16 预测性返回手势
-        if (Build.VERSION.SDK_INT >= 36) {
-            // 预测性返回已默认启用，无需额外配置
-        }
+        // 注册权限结果回调
+        overlayPermissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    if (Settings.canDrawOverlays(this)) {
+                        checkNotificationPermission();
+                    } else {
+                        showStatus("❌ 需要悬浮窗权限才能运行");
+                    }
+                }
+            }
+        );
         
         setContentView(R.layout.activity_main);
         
@@ -50,12 +54,8 @@ public class MainActivity extends AppCompatActivity {
         stopBtn = findViewById(R.id.stopBtn);
         statusText = findViewById(R.id.statusText);
 
-        if (startBtn != null) {
-            startBtn.setOnClickListener(v -> checkAndRequestPermissions());
-        }
-        if (stopBtn != null) {
-            stopBtn.setOnClickListener(v -> stopFloatingService());
-        }
+        startBtn.setOnClickListener(v -> checkOverlayPermission());
+        stopBtn.setOnClickListener(v -> stopFloatingService());
         
         updateStatus();
     }
@@ -67,45 +67,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateStatus() {
-        if (statusText == null) return;
-        
         boolean running = FloatTimeService.isRunning();
         runOnUiThread(() -> {
             if (running) {
                 statusText.setText("✅ 悬浮时间服务运行中");
-                if (startBtn != null) startBtn.setEnabled(false);
-                if (stopBtn != null) stopBtn.setEnabled(true);
+                startBtn.setEnabled(false);
+                stopBtn.setEnabled(true);
             } else {
                 statusText.setText("⭕ 服务未启动");
-                if (startBtn != null) startBtn.setEnabled(true);
-                if (stopBtn != null) stopBtn.setEnabled(false);
+                startBtn.setEnabled(true);
+                stopBtn.setEnabled(false);
             }
         });
     }
 
+    private void showStatus(String text) {
+        if (statusText != null) {
+            runOnUiThread(() -> statusText.setText(text));
+        }
+    }
+
     /**
-     * 检查并申请所有必要权限
+     * 检查悬浮窗权限
      */
-    private void checkAndRequestPermissions() {
-        // 1. 悬浮窗权限 (必须)
+    private void checkOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (!Settings.canDrawOverlays(this)) {
+            if (Settings.canDrawOverlays(this)) {
+                checkNotificationPermission();
+            } else {
                 showOverlayPermissionDialog();
-                return;
             }
+        } else {
+            startFloatingService();
         }
-        
-        // 2. 通知权限 (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                != PackageManager.PERMISSION_GRANTED) {
-                requestNotificationPermission();
-                return;
-            }
-        }
-        
-        // 所有权限已获取，启动服务
-        startFloatingService();
     }
 
     /**
@@ -117,9 +111,11 @@ public class MainActivity extends AppCompatActivity {
             .setMessage("悬浮时间需要在其他应用上层显示，请授予悬浮窗权限。")
             .setPositiveButton("去设置", (dialog, which) -> {
                 try {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                    startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+                    Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())
+                    );
+                    overlayPermissionLauncher.launch(intent);
                 } catch (Exception e) {
                     openAppSettings();
                 }
@@ -130,13 +126,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 申请通知权限
+     * 检查通知权限 (Android 13+)
      */
-    private void requestNotificationPermission() {
+    private void checkNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                REQUEST_NOTIFICATION_PERMISSION);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    1002);
+            } else {
+                startFloatingService();
+            }
+        } else {
+            startFloatingService();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, 
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 1002) {
+            startFloatingService();
         }
     }
 
@@ -153,18 +165,14 @@ public class MainActivity extends AppCompatActivity {
                 startService(intent);
             }
             
-            if (statusText != null) {
-                statusText.setText("✅ 悬浮时间服务已启动");
-            }
-            if (startBtn != null) startBtn.setEnabled(false);
-            if (stopBtn != null) stopBtn.setEnabled(true);
+            showStatus("✅ 悬浮时间服务已启动");
+            startBtn.setEnabled(false);
+            stopBtn.setEnabled(true);
             
             Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show();
             
         } catch (Exception e) {
-            if (statusText != null) {
-                statusText.setText("❌ 启动失败: " + e.getMessage());
-            }
+            showStatus("❌ 启动失败: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -177,18 +185,14 @@ public class MainActivity extends AppCompatActivity {
             Intent intent = new Intent(this, FloatTimeService.class);
             stopService(intent);
             
-            if (statusText != null) {
-                statusText.setText("⭕ 服务已停止");
-            }
-            if (startBtn != null) startBtn.setEnabled(true);
-            if (stopBtn != null) stopBtn.setEnabled(false);
+            showStatus("⭕ 服务已停止");
+            startBtn.setEnabled(true);
+            stopBtn.setEnabled(false);
             
             Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show();
             
         } catch (Exception e) {
-            if (statusText != null) {
-                statusText.setText("❌ 停止失败: " + e.getMessage());
-            }
+            showStatus("❌ 停止失败: " + e.getMessage());
         }
     }
 
@@ -197,40 +201,13 @@ public class MainActivity extends AppCompatActivity {
      */
     private void openAppSettings() {
         try {
-            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:" + getPackageName()));
+            Intent intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())
+            );
             startActivity(intent);
         } catch (Exception e) {
             // 忽略
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        
-        if (requestCode == REQUEST_OVERLAY_PERMISSION) {
-            // 从设置返回，重新检查权限
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (Settings.canDrawOverlays(this)) {
-                    checkAndRequestPermissions();
-                } else {
-                    if (statusText != null) {
-                        statusText.setText("❌ 需要悬浮窗权限才能运行");
-                    }
-                }
-            }
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, 
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
-        if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
-            // 无论通知权限是否授予，都可以启动服务
-            startFloatingService();
         }
     }
 }
