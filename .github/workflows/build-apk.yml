@@ -27,6 +27,19 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Create debug keystore
+        run: |
+          cd android/app
+          keytool -genkey -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=FloatTime, OU=Debug, O=FloatTime, L=Beijing, ST=Beijing, C=CN"
+
       - name: Install dependencies
         run: npm install
 
