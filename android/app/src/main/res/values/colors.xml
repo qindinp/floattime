@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="theme_taobao">#FF5000</color>
+    <color name="theme_meituan">#FFD100</color>
+    <color name="theme_local">#4A90E2</color>
+    <color name="colorPrimary">#FF5000</color>
+    <color name="colorPrimaryDark">#CC4000</color>
+    <color name="colorAccent">#FF5000</color>
+</resources>
