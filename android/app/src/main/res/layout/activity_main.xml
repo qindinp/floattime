@@ -30,12 +30,21 @@
         android:textColor="#70FFFFFF"
         android:textSize="14sp" />
 
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="⭕ 服务未启动"
+        android:textColor="#999999"
+        android:textSize="14sp" />
+
     <Button
         android:id="@+id/startBtn"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="32dp"
-        android:background="@drawable/sync_btn_bg"
+        android:backgroundTint="#FF5000"
         android:text="启动悬浮窗"
         android:textColor="#FFFFFF"
         android:textSize="16sp"
@@ -46,16 +55,18 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:background="@drawable/stopwatch_btn_bg"
+        android:backgroundTint="#333333"
         android:text="停止悬浮窗"
         android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        android:enabled="false" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="提示：请授予悬浮窗权限"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:text="使用说明：\n1. 点击启动后授予悬浮窗权限\n2. 悬浮球可拖动位置\n3. 点击悬浮球切换时间源"
         android:textColor="#50FFFFFF"
         android:textSize="12sp" />
 
