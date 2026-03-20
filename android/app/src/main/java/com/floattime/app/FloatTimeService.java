@@ -1,17 +1,14 @@
 package com.floattime.app;
 
-import android.Manifest;
 import android.animation.ValueAnimator;
-import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -25,25 +22,33 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.RemoteViews;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FloatTimeService extends Service {
 
     private static final String CHANNEL_ID = "float_time_channel";
     private static final int NOTIFICATION_ID = 20240320;
+    
+    // 静态标志位，用于判断服务是否运行
+    private static final AtomicBoolean isRunning = new AtomicBoolean(false);
+    public static boolean isRunning() {
+        return isRunning.get();
+    }
     
     private WindowManager windowManager;
     private View floatView;
@@ -51,7 +56,8 @@ public class FloatTimeService extends Service {
     private WindowManager.LayoutParams floatParams;
     private WindowManager.LayoutParams settingsParams;
     
-    private Handler handler = new Handler(Looper.getMainLooper());
+    private Handler handler;
+    private Runnable timeUpdateRunnable;
     
     private String timeSource = "taobao"; // taobao, meituan, local
     private long offsetMs = 0;
@@ -78,28 +84,54 @@ public class FloatTimeService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
         
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        isRunning.set(true);
+        handler = new Handler(Looper.getMainLooper());
         
-        createFloatingBall();
-        createSettingsPanel();
-        startClock();
-        syncTime();
+        try {
+            createNotificationChannel();
+            startForeground(NOTIFICATION_ID, createNotification());
+            
+            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+            if (windowManager == null) {
+                stopSelf();
+                return;
+            }
+            
+            createFloatingBall();
+            createSettingsPanel();
+            startClock();
+            syncTime();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            stopSelf();
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // 确保服务不会被意外杀死后重启
+        return START_STICKY;
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "悬浮时间",
-                NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("显示悬浮时间服务");
-            channel.setShowBadge(false);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(channel);
+            try {
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "悬浮时间",
+                    NotificationManager.IMPORTANCE_LOW
+                );
+                channel.setDescription("显示悬浮时间服务");
+                channel.setShowBadge(false);
+                NotificationManager manager = getSystemService(NotificationManager.class);
+                if (manager != null) {
+                    manager.createNotificationChannel(channel);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -122,117 +154,145 @@ public class FloatTimeService extends Service {
     }
 
     private void createFloatingBall() {
-        floatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
-        
-        timeText = floatView.findViewById(R.id.timeText);
-        dateText = floatView.findViewById(R.id.dateText);
-        sourceText = floatView.findViewById(R.id.sourceText);
-        syncDot = floatView.findViewById(R.id.syncDot);
-        
-        int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
-            : WindowManager.LayoutParams.TYPE_PHONE;
-        
-        floatParams = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE 
-                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        );
-        floatParams.gravity = Gravity.TOP | Gravity.START;
-        floatParams.x = 100;
-        floatParams.y = 200;
-        
-        updateTheme();
-        setupFloatBallTouch();
-        
-        windowManager.addView(floatView, floatParams);
+        try {
+            floatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
+            
+            timeText = floatView.findViewById(R.id.timeText);
+            dateText = floatView.findViewById(R.id.dateText);
+            sourceText = floatView.findViewById(R.id.sourceText);
+            syncDot = floatView.findViewById(R.id.syncDot);
+            
+            int layoutType;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            } else {
+                layoutType = WindowManager.LayoutParams.TYPE_PHONE;
+            }
+            
+            floatParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE 
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            );
+            floatParams.gravity = Gravity.TOP | Gravity.START;
+            floatParams.x = 100;
+            floatParams.y = 200;
+            
+            updateTheme();
+            setupFloatBallTouch();
+            
+            windowManager.addView(floatView, floatParams);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void setupFloatBallTouch() {
+        if (floatView == null) return;
+        
         final float[] touchX = new float[1];
         final float[] touchY = new float[1];
         final int[] lastX = new int[1];
         final int[] lastY = new int[1];
         final boolean[] moved = {false};
         
-        floatView.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    touchX[0] = event.getRawX();
-                    touchY[0] = event.getRawY();
-                    lastX[0] = floatParams.x;
-                    lastY[0] = floatParams.y;
-                    moved[0] = false;
-                    return true;
-                    
-                case MotionEvent.ACTION_MOVE:
-                    float dx = event.getRawX() - touchX[0];
-                    float dy = event.getRawY() - touchY[0];
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                        moved[0] = true;
-                        floatParams.x = lastX[0] + (int) dx;
-                        floatParams.y = lastY[0] + (int) dy;
-                        windowManager.updateViewLayout(floatView, floatParams);
+        floatView.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                try {
+                    switch (event.getAction()) {
+                        case MotionEvent.ACTION_DOWN:
+                            touchX[0] = event.getRawX();
+                            touchY[0] = event.getRawY();
+                            lastX[0] = floatParams.x;
+                            lastY[0] = floatParams.y;
+                            moved[0] = false;
+                            return true;
+                            
+                        case MotionEvent.ACTION_MOVE:
+                            float dx = event.getRawX() - touchX[0];
+                            float dy = event.getRawY() - touchY[0];
+                            if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                                moved[0] = true;
+                                floatParams.x = lastX[0] + (int) dx;
+                                floatParams.y = lastY[0] + (int) dy;
+                                if (floatView != null && floatView.getParent() != null) {
+                                    windowManager.updateViewLayout(floatView, floatParams);
+                                }
+                            }
+                            return true;
+                            
+                        case MotionEvent.ACTION_UP:
+                            if (!moved[0]) {
+                                toggleSettings();
+                            }
+                            return true;
                     }
-                    return true;
-                    
-                case MotionEvent.ACTION_UP:
-                    if (!moved[0]) {
-                        toggleSettings();
-                    }
-                    return true;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                return false;
             }
-            return false;
         });
     }
 
     private void createSettingsPanel() {
-        settingsView = LayoutInflater.from(this).inflate(R.layout.settings_panel, null);
-        
-        settingsCurrentSource = settingsView.findViewById(R.id.currentSource);
-        settingsOffset = settingsView.findViewById(R.id.offsetValue);
-        settingsLastSync = settingsView.findViewById(R.id.lastSyncTime);
-        stopwatchDisplay = settingsView.findViewById(R.id.stopwatchDisplay);
-        
-        // 时间源选择
-        LinearLayout sourceTaobao = settingsView.findViewById(R.id.sourceTaobao);
-        LinearLayout sourceMeituan = settingsView.findViewById(R.id.sourceMeituan);
-        LinearLayout sourceLocal = settingsView.findViewById(R.id.sourceLocal);
-        
-        sourceTaobao.setOnClickListener(v -> selectSource("taobao"));
-        sourceMeituan.setOnClickListener(v -> selectSource("meituan"));
-        sourceLocal.setOnClickListener(v -> selectSource("local"));
-        
-        // 同步按钮
-        settingsView.findViewById(R.id.syncBtn).setOnClickListener(v -> syncTime());
-        
-        // 秒表
-        settingsView.findViewById(R.id.stopwatchToggle).setOnClickListener(v -> toggleStopwatch());
-        settingsView.findViewById(R.id.stopwatchReset).setOnClickListener(v -> resetStopwatch());
-        
-        // 关闭按钮
-        settingsView.findViewById(R.id.closeBtn).setOnClickListener(v -> hideSettings());
-        
-        int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
-            : WindowManager.LayoutParams.TYPE_PHONE;
-        
-        settingsParams = new WindowManager.LayoutParams(
-            (int) (280 * getResources().getDisplayMetrics().density),
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        );
-        settingsParams.gravity = Gravity.CENTER;
-        settingsParams.y = -50;
-        
-        // 初始化选中状态
-        checkSourceSelection();
+        try {
+            settingsView = LayoutInflater.from(this).inflate(R.layout.settings_panel, null);
+            
+            settingsCurrentSource = settingsView.findViewById(R.id.currentSource);
+            settingsOffset = settingsView.findViewById(R.id.offsetValue);
+            settingsLastSync = settingsView.findViewById(R.id.lastSyncTime);
+            stopwatchDisplay = settingsView.findViewById(R.id.stopwatchDisplay);
+            
+            // 时间源选择
+            LinearLayout sourceTaobao = settingsView.findViewById(R.id.sourceTaobao);
+            LinearLayout sourceMeituan = settingsView.findViewById(R.id.sourceMeituan);
+            LinearLayout sourceLocal = settingsView.findViewById(R.id.sourceLocal);
+            
+            if (sourceTaobao != null) sourceTaobao.setOnClickListener(v -> selectSource("taobao"));
+            if (sourceMeituan != null) sourceMeituan.setOnClickListener(v -> selectSource("meituan"));
+            if (sourceLocal != null) sourceLocal.setOnClickListener(v -> selectSource("local"));
+            
+            // 同步按钮
+            View syncBtn = settingsView.findViewById(R.id.syncBtn);
+            if (syncBtn != null) syncBtn.setOnClickListener(v -> syncTime());
+            
+            // 秒表
+            View stopwatchToggle = settingsView.findViewById(R.id.stopwatchToggle);
+            View stopwatchReset = settingsView.findViewById(R.id.stopwatchReset);
+            if (stopwatchToggle != null) stopwatchToggle.setOnClickListener(v -> toggleStopwatch());
+            if (stopwatchReset != null) stopwatchReset.setOnClickListener(v -> resetStopwatch());
+            
+            // 关闭按钮
+            View closeBtn = settingsView.findViewById(R.id.closeBtn);
+            if (closeBtn != null) closeBtn.setOnClickListener(v -> hideSettings());
+            
+            int layoutType;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            } else {
+                layoutType = WindowManager.LayoutParams.TYPE_PHONE;
+            }
+            
+            settingsParams = new WindowManager.LayoutParams(
+                (int) (280 * getResources().getDisplayMetrics().density),
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            );
+            settingsParams.gravity = Gravity.CENTER;
+            settingsParams.y = -50;
+            
+            checkSourceSelection();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void toggleSettings() {
@@ -244,16 +304,24 @@ public class FloatTimeService extends Service {
     }
 
     private void showSettings() {
-        if (!isSettingsOpen && settingsView.getParent() == null) {
-            windowManager.addView(settingsView, settingsParams);
-            isSettingsOpen = true;
+        try {
+            if (!isSettingsOpen && settingsView != null && settingsView.getParent() == null) {
+                windowManager.addView(settingsView, settingsParams);
+                isSettingsOpen = true;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     private void hideSettings() {
-        if (isSettingsOpen && settingsView.getParent() != null) {
-            windowManager.removeView(settingsView);
-            isSettingsOpen = false;
+        try {
+            if (isSettingsOpen && settingsView != null && settingsView.getParent() != null) {
+                windowManager.removeView(settingsView);
+                isSettingsOpen = false;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -267,112 +335,155 @@ public class FloatTimeService extends Service {
     }
 
     private void updateTheme() {
-        int bgRes;
-        int textColor;
-        
-        switch (timeSource) {
-            case "taobao":
-                bgRes = R.drawable.float_ball_bg_taobao;
-                textColor = getResources().getColor(R.color.theme_taobao);
-                break;
-            case "meituan":
-                bgRes = R.drawable.float_ball_bg_meituan;
-                textColor = getResources().getColor(R.color.theme_meituan);
-                break;
-            default:
-                bgRes = R.drawable.float_ball_bg_local;
-                textColor = getResources().getColor(R.color.theme_local);
-                break;
+        try {
+            if (floatView == null) return;
+            
+            int bgRes;
+            int textColor;
+            
+            switch (timeSource) {
+                case "taobao":
+                    bgRes = R.drawable.float_ball_bg_taobao;
+                    textColor = getResources().getColor(R.color.theme_taobao);
+                    break;
+                case "meituan":
+                    bgRes = R.drawable.float_ball_bg_meituan;
+                    textColor = getResources().getColor(R.color.theme_meituan);
+                    break;
+                default:
+                    bgRes = R.drawable.float_ball_bg_local;
+                    textColor = getResources().getColor(R.color.theme_local);
+                    break;
+            }
+            
+            floatView.setBackgroundResource(bgRes);
+            if (sourceText != null) sourceText.setTextColor(textColor);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        
-        floatView.setBackgroundResource(bgRes);
-        sourceText.setTextColor(textColor);
     }
 
     private void checkSourceSelection() {
-        TextView checkTaobao = settingsView.findViewById(R.id.checkTaobao);
-        TextView checkMeituan = settingsView.findViewById(R.id.checkMeituan);
-        TextView checkLocal = settingsView.findViewById(R.id.checkLocal);
+        if (settingsView == null) return;
         
-        LinearLayout sourceTaobao = settingsView.findViewById(R.id.sourceTaobao);
-        LinearLayout sourceMeituan = settingsView.findViewById(R.id.sourceMeituan);
-        LinearLayout sourceLocal = settingsView.findViewById(R.id.sourceLocal);
-        
-        checkTaobao.setVisibility(timeSource.equals("taobao") ? View.VISIBLE : View.GONE);
-        checkMeituan.setVisibility(timeSource.equals("meituan") ? View.VISIBLE : View.GONE);
-        checkLocal.setVisibility(timeSource.equals("local") ? View.VISIBLE : View.GONE);
-        
-        sourceTaobao.setSelected(timeSource.equals("taobao"));
-        sourceMeituan.setSelected(timeSource.equals("meituan"));
-        sourceLocal.setSelected(timeSource.equals("local"));
+        try {
+            TextView checkTaobao = settingsView.findViewById(R.id.checkTaobao);
+            TextView checkMeituan = settingsView.findViewById(R.id.checkMeituan);
+            TextView checkLocal = settingsView.findViewById(R.id.checkLocal);
+            
+            LinearLayout sourceTaobao = settingsView.findViewById(R.id.sourceTaobao);
+            LinearLayout sourceMeituan = settingsView.findViewById(R.id.sourceMeituan);
+            LinearLayout sourceLocal = settingsView.findViewById(R.id.sourceLocal);
+            
+            if (checkTaobao != null) checkTaobao.setVisibility(timeSource.equals("taobao") ? View.VISIBLE : View.GONE);
+            if (checkMeituan != null) checkMeituan.setVisibility(timeSource.equals("meituan") ? View.VISIBLE : View.GONE);
+            if (checkLocal != null) checkLocal.setVisibility(timeSource.equals("local") ? View.VISIBLE : View.GONE);
+            
+            if (sourceTaobao != null) sourceTaobao.setSelected(timeSource.equals("taobao"));
+            if (sourceMeituan != null) sourceMeituan.setSelected(timeSource.equals("meituan"));
+            if (sourceLocal != null) sourceLocal.setSelected(timeSource.equals("local"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void startClock() {
-        handler.postDelayed(new Runnable() {
+        timeUpdateRunnable = new Runnable() {
             @Override
             public void run() {
                 updateTime();
-                handler.postDelayed(this, 1000);
+                if (handler != null) {
+                    handler.postDelayed(this, 1000);
+                }
             }
-        }, 0);
+        };
+        if (handler != null) {
+            handler.post(timeUpdateRunnable);
+        }
     }
 
     private void updateTime() {
-        long now = System.currentTimeMillis() + offsetMs;
-        Date date = new Date(now);
-        
-        SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-        SimpleDateFormat dateFmt = new SimpleDateFormat("yyyy/MM/dd", Locale.getDefault());
-        
-        timeText.setText(timeFmt.format(date));
-        dateText.setText(dateFmt.format(date));
-        sourceText.setText(timeSource.equals("taobao") ? "淘" : (timeSource.equals("meituan") ? "团" : "本"));
-        
-        updateNotification(timeFmt.format(date), dateFmt.format(date));
-        
-        if (stopwatchRunning) {
-            stopwatchElapsed = System.currentTimeMillis() - stopwatchStart;
-            updateStopwatchDisplay();
+        try {
+            long now = System.currentTimeMillis() + offsetMs;
+            Date date = new Date(now);
+            
+            SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+            SimpleDateFormat dateFmt = new SimpleDateFormat("yyyy/MM/dd", Locale.getDefault());
+            
+            if (timeText != null) timeText.setText(timeFmt.format(date));
+            if (dateText != null) dateText.setText(dateFmt.format(date));
+            if (sourceText != null) sourceText.setText(timeSource.equals("taobao") ? "淘" : (timeSource.equals("meituan") ? "团" : "本"));
+            
+            updateNotification(timeFmt.format(date), dateFmt.format(date));
+            
+            if (stopwatchRunning) {
+                stopwatchElapsed = System.currentTimeMillis() - stopwatchStart;
+                updateStopwatchDisplay();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     private void updateNotification(String time, String dateStr) {
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        
-        RemoteViews collapsed = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
-        collapsed.setTextViewText(R.id.notifTime, time);
-        collapsed.setTextViewText(R.id.notifDate, dateStr);
-        
-        RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.notification_expanded);
-        expanded.setTextViewText(R.id.notifTimeBig, time);
-        expanded.setTextViewText(R.id.notifDateBig, dateStr);
-        
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_time)
-            .setCustomContentView(collapsed)
-            .setCustomBigContentView(expanded)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setShowWhen(false);
-        
-        nm.notify(NOTIFICATION_ID, builder.build());
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            
+            RemoteViews collapsed = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
+            collapsed.setTextViewText(R.id.notifTime, time);
+            collapsed.setTextViewText(R.id.notifDate, dateStr);
+            
+            RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.notification_expanded);
+            expanded.setTextViewText(R.id.notifTimeBig, time);
+            expanded.setTextViewText(R.id.notifDateBig, dateStr);
+            
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_time)
+                .setCustomContentView(collapsed)
+                .setCustomBigContentView(expanded)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setShowWhen(false);
+            
+            nm.notify(NOTIFICATION_ID, builder.build());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void syncTime() {
-        syncDot.setBackgroundResource(R.drawable.sync_dot_syncing);
+        if (syncDot != null) syncDot.setBackgroundResource(R.drawable.sync_dot_syncing);
         
-        new Thread(() -> {
-            try {
-                long offset = fetchTimeOffset(timeSource);
-                offsetMs = offset;
-                lastSyncTime = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-                handler.post(() -> {
-                    syncDot.setBackgroundResource(R.drawable.sync_dot_success);
-                    updateSettingsUI();
-                });
-            } catch (Exception e) {
-                handler.post(() -> syncDot.setBackgroundResource(R.drawable.sync_dot_error));
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final long offset = fetchTimeOffset(timeSource);
+                    offsetMs = offset;
+                    lastSyncTime = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+                    
+                    if (handler != null) {
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (syncDot != null) syncDot.setBackgroundResource(R.drawable.sync_dot_success);
+                                updateSettingsUI();
+                            }
+                        });
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    if (handler != null) {
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (syncDot != null) syncDot.setBackgroundResource(R.drawable.sync_dot_error);
+                            }
+                        });
+                    }
+                }
             }
         }).start();
     }
@@ -420,50 +531,65 @@ public class FloatTimeService extends Service {
                 return serverTime - localMid;
             }
         } catch (Exception e) {
-            // 解析失败
+            e.printStackTrace();
         }
         
         return 0;
     }
 
     private void updateSettingsUI() {
-        String sourceName;
-        int sourceColor;
+        if (settingsView == null) return;
         
-        switch (timeSource) {
-            case "taobao":
-                sourceName = "淘宝时间";
-                sourceColor = getResources().getColor(R.color.theme_taobao);
-                break;
-            case "meituan":
-                sourceName = "美团时间";
-                sourceColor = getResources().getColor(R.color.theme_meituan);
-                break;
-            default:
-                sourceName = "本地时间";
-                sourceColor = getResources().getColor(R.color.theme_local);
-                break;
+        try {
+            String sourceName;
+            int sourceColor;
+            
+            switch (timeSource) {
+                case "taobao":
+                    sourceName = "淘宝时间";
+                    sourceColor = getResources().getColor(R.color.theme_taobao);
+                    break;
+                case "meituan":
+                    sourceName = "美团时间";
+                    sourceColor = getResources().getColor(R.color.theme_meituan);
+                    break;
+                default:
+                    sourceName = "本地时间";
+                    sourceColor = getResources().getColor(R.color.theme_local);
+                    break;
+            }
+            
+            if (settingsCurrentSource != null) {
+                settingsCurrentSource.setText(sourceName);
+                settingsCurrentSource.setTextColor(sourceColor);
+            }
+            
+            if (settingsOffset != null) {
+                String offsetText = offsetMs == 0 ? "±0ms" : 
+                    (offsetMs > 0 ? "+" + offsetMs + "ms" : offsetMs + "ms");
+                settingsOffset.setText(offsetText);
+            }
+            
+            if (settingsLastSync != null) {
+                settingsLastSync.setText(lastSyncTime);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        
-        settingsCurrentSource.setText(sourceName);
-        settingsCurrentSource.setTextColor(sourceColor);
-        
-        String offsetText = offsetMs == 0 ? "±0ms" : 
-            (offsetMs > 0 ? "+" + offsetMs + "ms" : offsetMs + "ms");
-        settingsOffset.setText(offsetText);
-        settingsLastSync.setText(lastSyncTime);
     }
 
     private void toggleStopwatch() {
+        if (settingsView == null) return;
+        
         Button toggleBtn = settingsView.findViewById(R.id.stopwatchToggle);
         
         if (stopwatchRunning) {
             stopwatchRunning = false;
-            toggleBtn.setText("▶");
+            if (toggleBtn != null) toggleBtn.setText("▶");
         } else {
             stopwatchRunning = true;
             stopwatchStart = System.currentTimeMillis() - stopwatchElapsed;
-            toggleBtn.setText("⏸");
+            if (toggleBtn != null) toggleBtn.setText("⏸");
         }
     }
 
@@ -472,11 +598,15 @@ public class FloatTimeService extends Service {
         stopwatchElapsed = 0;
         updateStopwatchDisplay();
         
-        Button toggleBtn = settingsView.findViewById(R.id.stopwatchToggle);
-        toggleBtn.setText("▶");
+        if (settingsView != null) {
+            Button toggleBtn = settingsView.findViewById(R.id.stopwatchToggle);
+            if (toggleBtn != null) toggleBtn.setText("▶");
+        }
     }
 
     private void updateStopwatchDisplay() {
+        if (stopwatchDisplay == null) return;
+        
         long ms = stopwatchElapsed;
         long seconds = (ms / 1000) % 60;
         long minutes = (ms / (1000 * 60)) % 60;
@@ -487,16 +617,42 @@ public class FloatTimeService extends Service {
     }
 
     @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // 根据小米文档，正确处理 Configuration 变化
+        // 这里可以更新悬浮球位置等
+    }
+
+    @Override
     public void onDestroy() {
-        super.onDestroy();
-        handler.removeCallbacksAndMessages(null);
+        isRunning.set(false);
         
-        if (floatView != null && floatView.getParent() != null) {
-            windowManager.removeView(floatView);
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+            handler = null;
         }
-        if (settingsView != null && settingsView.getParent() != null) {
-            windowManager.removeView(settingsView);
+        
+        try {
+            if (floatView != null && floatView.getParent() != null) {
+                windowManager.removeView(floatView);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+        
+        try {
+            if (settingsView != null && settingsView.getParent() != null) {
+                windowManager.removeView(settingsView);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        floatView = null;
+        settingsView = null;
+        windowManager = null;
+        
+        super.onDestroy();
     }
 
     @Nullable
