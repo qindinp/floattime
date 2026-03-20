@@ -1,54 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球布局 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="108dp"
+<!-- 悬浮球布局 - 简化版 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="@drawable/float_ball_bg_taobao"
-    android:padding="8dp">
+    android:background="#EBFF5000"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="12dp"
+    android:minWidth="90dp">
 
     <TextView
         android:id="@+id/timeText"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:gravity="center"
         android:text="00:00:00"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:textStyle="bold"
-        android:letterSpacing="0.05"
+        android:fontFamily="monospace"
         android:shadowColor="#40000000"
         android:shadowDx="0"
         android:shadowDy="1"
-        android:shadowRadius="3" />
+        android:shadowRadius="2" />
 
     <TextView
         android:id="@+id/dateText"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:gravity="center"
+        android:layout_marginTop="2dp"
         android:text="----/--/--"
         android:textColor="#CCFFFFFF"
-        android:textSize="10sp" />
+        android:textSize="10sp"
+        android:fontFamily="monospace" />
 
     <TextView
         android:id="@+id/sourceText"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="36dp"
-        android:gravity="center"
+        android:layout_marginTop="4dp"
         android:text="淘"
-        android:textColor="#FF5000"
+        android:textColor="#FFFFFF"
         android:textSize="11sp"
         android:textStyle="bold" />
 
     <View
         android:id="@+id/syncDot"
-        android:layout_width="7dp"
-        android:layout_height="7dp"
-        android:layout_gravity="top|end"
+        android:layout_width="6dp"
+        android:layout_height="6dp"
         android:layout_marginTop="4dp"
-        android:layout_marginEnd="4dp"
         android:background="@drawable/sync_dot_success" />
 
-</FrameLayout>
+</LinearLayout>
