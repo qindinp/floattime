@@ -27,16 +27,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Capacitor dependencies
+      - name: Install dependencies
         run: npm install
 
-      - name: Run build (copy dist)
+      - name: Build
         run: npm run build
 
-      - name: Init Capacitor Android platform
-        run: |
-          npx cap add android
-          npx cap sync android
+      - name: Sync Capacitor
+        run: npx cap sync android
 
       - name: Grant gradlew permission
         run: chmod +x android/gradlew
