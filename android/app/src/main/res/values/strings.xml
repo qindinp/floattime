@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FloatTime</string>
+    <string name="title_activity_main">FloatTime</string>
+    <string name="package_name">com.floattime.app</string>
+    <string name="custom_url_scheme">com.floattime.app</string>
+</resources>

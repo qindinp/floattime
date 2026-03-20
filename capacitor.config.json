@@ -1,0 +1,12 @@
+{
+  "appId": "com.floattime.app",
+  "appName": "FloatTime",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {}
+}
