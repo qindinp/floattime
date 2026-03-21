@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 
 type TimeSource = 'taobao' | 'meituan' | 'local'
+type ThemeMode = 'auto' | 'light' | 'dark'
 
 const timeSource = ref<TimeSource>('taobao')
 const displayTime = ref('00:00:00')
@@ -17,7 +18,7 @@ const dragStartY = ref(0)
 const floatX = ref(window.innerWidth - 120)
 const floatY = ref(120)
 const panelX = ref(Math.max(10, window.innerWidth / 2 - 150))
-const panelY = ref(Math.max(10, window.innerHeight / 2 - 220))
+const panelY = ref(Math.max(10, window.innerHeight / 2 - 250))
 const isPanelDragging = ref(false)
 const panelDragStartX = ref(0)
 const panelDragStartY = ref(0)
@@ -27,6 +28,49 @@ let stopwatchTimer: ReturnType<typeof setInterval> | null = null
 const stopwatchStart = ref(0)
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let syncTimer: ReturnType<typeof setInterval> | null = null
+
+// ========== 日夜间模式 ==========
+const themeMode = ref<ThemeMode>('auto')
+const systemIsDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+const isDarkMode = computed(() => {
+  if (themeMode.value === 'auto') {
+    return systemIsDark.value
+  }
+  return themeMode.value === 'dark'
+})
+
+watch(isDarkMode, () => {
+  applyTheme()
+}, { immediate: true })
+
+let darkModeQuery: MediaQueryList | null = null
+
+function setupThemeListener() {
+  darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  systemIsDark.value = darkModeQuery.matches
+  darkModeQuery.addEventListener('change', (e) => {
+    systemIsDark.value = e.matches
+  })
+}
+
+function applyTheme() {
+  const root = document.documentElement
+  if (isDarkMode.value) {
+    root.classList.add('dark-theme')
+    root.classList.remove('light-theme')
+  } else {
+    root.classList.add('light-theme')
+    root.classList.remove('dark-theme')
+  }
+}
+
+function setThemeMode(mode: ThemeMode) {
+  themeMode.value = mode
+  localStorage.setItem('floattime-theme', mode)
+}
+
+// ========== 原有功能 ==========
 
 const currentSourceLabel = computed(() => {
   if (timeSource.value === 'taobao') return '淘宝时间'
@@ -41,9 +85,9 @@ const themeColor = computed(() => {
 })
 
 const themeBg = computed(() => {
-  if (timeSource.value === 'taobao') return 'rgba(255,80,0,0.92)'
-  if (timeSource.value === 'meituan') return 'rgba(255,209,0,0.92)'
-  return 'rgba(74,144,226,0.92)'
+  if (timeSource.value === 'taobao') return isDarkMode.value ? 'rgba(255,80,0,0.92)' : 'rgba(255,80,0,0.95)'
+  if (timeSource.value === 'meituan') return isDarkMode.value ? 'rgba(255,209,0,0.92)' : 'rgba(255,209,0,0.95)'
+  return isDarkMode.value ? 'rgba(74,144,226,0.92)' : 'rgba(74,144,226,0.95)'
 })
 
 async function syncTime(source: TimeSource): Promise<number> {
@@ -166,7 +210,7 @@ function onFloatMouseUp() { isDragging.value = false; startTick() }
 
 // Panel drag
 function onPanelMouseDown(e: MouseEvent) {
-  if ((e.target as HTMLElement).closest('.close-btn, .source-item, .sync-btn, .stopwatch-btns button')) return
+  if ((e.target as HTMLElement).closest('.close-btn, .source-item, .sync-btn, .stopwatch-btns button, .theme-btn')) return
   isPanelDragging.value = true
   panelDragStartX.value = e.clientX - panelX.value
   panelDragStartY.value = e.clientY - panelY.value
@@ -174,7 +218,7 @@ function onPanelMouseDown(e: MouseEvent) {
 function onPanelMouseMove(e: MouseEvent) {
   if (!isPanelDragging.value) return
   panelX.value = Math.max(0, Math.min(window.innerWidth - 310, e.clientX - panelDragStartX.value))
-  panelY.value = Math.max(0, Math.min(window.innerHeight - 400, e.clientY - panelDragStartY.value))
+  panelY.value = Math.max(0, Math.min(window.innerHeight - 500, e.clientY - panelDragStartY.value))
 }
 function onPanelMouseUp() { isPanelDragging.value = false }
 
@@ -203,6 +247,14 @@ function formatMs(ms: number) {
 }
 
 onMounted(async () => {
+  // 恢复主题设置
+  const savedTheme = localStorage.getItem('floattime-theme') as ThemeMode | null
+  if (savedTheme) {
+    themeMode.value = savedTheme
+  }
+  setupThemeListener()
+  applyTheme()
+  
   await doSync()
   startTick()
   startSyncInterval()
@@ -211,11 +263,14 @@ onUnmounted(() => {
   clearInterval(tickTimer!)
   clearInterval(syncTimer!)
   clearInterval(stopwatchTimer!)
+  if (darkModeQuery) {
+    darkModeQuery.removeEventListener('change', () => {})
+  }
 })
 </script>
 
 <template>
-  <div class="root" @mousemove="onFloatMouseMove" @mouseup="onFloatMouseUp" @mouseleave="onFloatMouseUp">
+  <div class="root" :class="{ 'is-dark': isDarkMode }" @mousemove="onFloatMouseMove" @mouseup="onFloatMouseUp" @mouseleave="onFloatMouseUp">
     <!-- Floating Ball -->
     <div
       class="float-ball"
@@ -241,6 +296,7 @@ onUnmounted(() => {
       <div
         v-if="isSettingsOpen"
         class="settings-panel"
+        :class="{ 'is-dark': isDarkMode }"
         :style="{ left: panelX+'px', top: panelY+'px' }"
         @mousedown.stop="onPanelMouseDown"
         @mousemove.stop="onPanelMouseMove"
@@ -248,8 +304,28 @@ onUnmounted(() => {
         @mouseleave.stop="onPanelMouseUp"
       >
         <div class="panel-header">
-          <span>⚙️ 时间校准</span>
+          <span>⚙️ 时间校准 v1.2.0</span>
           <button class="close-btn" @click="isSettingsOpen = false">✕</button>
+        </div>
+
+        <!-- 主题切换 -->
+        <div class="section-title">🎨 外观主题</div>
+        <div class="theme-switcher">
+          <button 
+            class="theme-btn" 
+            :class="{ active: themeMode === 'auto' }"
+            @click="setThemeMode('auto')"
+          >🔄 跟随系统</button>
+          <button 
+            class="theme-btn" 
+            :class="{ active: themeMode === 'light' }"
+            @click="setThemeMode('light')"
+          >☀️ 日间</button>
+          <button 
+            class="theme-btn" 
+            :class="{ active: themeMode === 'dark' }"
+            @click="setThemeMode('dark')"
+          >🌙 夜间</button>
         </div>
 
         <div class="section-title">时间源</div>
@@ -342,15 +418,52 @@ onUnmounted(() => {
 .settings-panel {
   position: absolute;
   width: 300px;
-  background: rgba(14,14,22,.97);
   border-radius: 18px;
   padding: 16px;
-  box-shadow: 0 12px 48px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.07);
   pointer-events: all;
   cursor: default;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
+
+/* 深色主题 */
+.settings-panel.is-dark {
+  background: rgba(14,14,22,.97);
+  box-shadow: 0 12px 48px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.07);
+}
+.settings-panel.is-dark .panel-header,
+.settings-panel.is-dark .section-title,
+.settings-panel.is-dark .source-name,
+.settings-panel.is-dark .status-value,
+.settings-panel.is-dark .stopwatch-display { color: #fff; }
+.settings-panel.is-dark .source-desc,
+.settings-panel.is-dark .status-label,
+.settings-panel.is-dark .stopwatch-title { color: rgba(255,255,255,.45); }
+
+/* 浅色主题 */
+.settings-panel:not(.is-dark) {
+  background: rgba(255,255,255,.97);
+  box-shadow: 0 12px 48px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.06);
+}
+.settings-panel:not(.is-dark) .panel-header,
+.settings-panel:not(.is-dark) .section-title,
+.settings-panel:not(.is-dark) .source-name,
+.settings-panel:not(.is-dark) .status-value,
+.settings-panel:not(.is-dark) .stopwatch-display { color: #1a1a2e; }
+.settings-panel:not(.is-dark) .source-desc,
+.settings-panel:not(.is-dark) .status-label,
+.settings-panel:not(.is-dark) .stopwatch-title { color: rgba(0,0,0,.5); }
+.settings-panel:not(.is-dark) .source-item { background: rgba(0,0,0,.03); }
+.settings-panel:not(.is-dark) .source-item:hover { background: rgba(0,0,0,.06); }
+.settings-panel:not(.is-dark) .status-bar { background: rgba(0,0,0,.03); }
+.settings-panel:not(.is-dark) .status-item { border-right-color: rgba(0,0,0,.06); }
+.settings-panel:not(.is-dark) .sync-btn { background: rgba(0,0,0,.06); color: #1a1a2e; }
+.settings-panel:not(.is-dark) .stopwatch { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.06); }
+.settings-panel:not(.is-dark) .stopwatch-btns button { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.08); color: #1a1a2e; }
+.settings-panel:not(.is-dark) .close-btn { background: rgba(0,0,0,.06); color: #666; }
+.settings-panel:not(.is-dark) .theme-btn { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.08); }
+.settings-panel:not(.is-dark) .theme-btn:hover { background: rgba(0,0,0,.06); }
+.settings-panel:not(.is-dark) .theme-btn.active { border-color: #4A90E2; background: rgba(74,144,226,.1); }
 
 .panel-header {
   display: flex;
@@ -358,11 +471,10 @@ onUnmounted(() => {
   align-items: center;
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
   margin-bottom: 14px;
   cursor: move;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,.07);
+  border-bottom: 1px solid rgba(128,128,128,.15);
 }
 .close-btn {
   background: rgba(255,255,255,.1);
@@ -379,7 +491,33 @@ onUnmounted(() => {
 }
 .close-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
 
-.section-title { font-size: 11px; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+/* 主题切换按钮 */
+.theme-switcher {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.theme-btn {
+  flex: 1;
+  padding: 10px 6px;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.04);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.theme-btn:hover {
+  background: rgba(255,255,255,.08);
+}
+.theme-btn.active {
+  border-color: #4A90E2;
+  background: rgba(74,144,226,.15);
+}
+.settings-panel:not(.is-dark) .theme-btn { color: #1a1a2e; }
+.settings-panel.is-dark .theme-btn { color: #fff; }
 
 .source-list { display: flex; flex-direction: column; gap: 6px; }
 
@@ -401,15 +539,15 @@ onUnmounted(() => {
 
 .source-icon { font-size: 24px; flex-shrink: 0; }
 .source-info { flex: 1; }
-.source-name { font-size: 14px; font-weight: 600; color: #fff; }
-.source-desc { font-size: 11px; color: rgba(255,255,255,.45); margin-top: 1px; }
+.source-name { font-size: 14px; font-weight: 600; }
+.source-desc { font-size: 11px; margin-top: 1px; }
 .check { color: #52c41a; font-size: 18px; font-weight: 700; }
 
-.status-bar { display: flex; margin-top: 12px; border-radius: 10px; overflow: hidden; background: rgba(255,255,255,.05); }
-.status-item { flex: 1; padding: 7px 8px; text-align: center; border-right: 1px solid rgba(255,255,255,.07); }
+.status-bar { display: flex; margin-top: 12px; border-radius: 10px; overflow: hidden; background: rgba(128,128,128,.08); }
+.status-item { flex: 1; padding: 7px 8px; text-align: center; border-right: 1px solid rgba(128,128,128,.1); }
 .status-item:last-child { border-right: none; }
-.status-label { display: block; font-size: 10px; color: rgba(255,255,255,.4); }
-.status-value { display: block; font-size: 12px; font-weight: 600; color: #fff; margin-top: 1px; font-variant-numeric: tabular-nums; }
+.status-label { display: block; font-size: 10px; }
+.status-value { display: block; font-size: 12px; font-weight: 600; margin-top: 1px; font-variant-numeric: tabular-nums; }
 .status-value.warn { color: #ff7875; }
 .sync-value { font-size: 11px; }
 
@@ -423,9 +561,9 @@ onUnmounted(() => {
 .sync-btn:hover:not(:disabled) { background: rgba(255,255,255,.22); }
 .sync-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-.stopwatch { margin-top: 10px; padding: 10px; background: rgba(255,255,255,.04); border-radius: 10px; border: 1px solid rgba(255,255,255,.07); }
-.stopwatch-title { font-size: 11px; color: rgba(255,255,255,.4); margin-bottom: 4px; }
-.stopwatch-display { font-size: 28px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 2px; font-family: 'Courier New', monospace; }
+.stopwatch { margin-top: 10px; padding: 10px; background: rgba(128,128,128,.06); border-radius: 10px; border: 1px solid rgba(128,128,128,.1); }
+.stopwatch-title { font-size: 11px; margin-bottom: 4px; }
+.stopwatch-display { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 2px; font-family: 'Courier New', monospace; }
 .stopwatch-btns { display: flex; gap: 8px; margin-top: 6px; }
 .stopwatch-btns button { flex: 1; padding: 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.07); color: #fff; font-size: 16px; cursor: pointer; }
 .stopwatch-btns button:hover { background: rgba(255,255,255,.15); }
