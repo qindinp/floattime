@@ -1,7 +1,7 @@
 {
   "name": "taobao-time-float",
-  "version": "1.0.0",
-  "description": "悬浮窗时间展示 - 支持淘宝/美团时间自动校准",
+  "version": "1.2.0",
+  "description": "悬浮窗时间展示 - 支持淘宝/美团时间自动校准，日夜间模式切换",
   "scripts": {
     "build": "node build.js",
     "dev": "node -e \"const http=require('http'),fs=require('fs');http.createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});res.end(fs.readFileSync('dist/index.html'))}).listen(3000,()=>console.log('http://localhost:3000'))\""
