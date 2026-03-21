@@ -1,68 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球布局 - 灵动岛风格 -->
+<!-- 悬浮球布局 - 灵动岛风格，带毫秒显示 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/floatContainer"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:gravity="center"
     android:background="#FF5A3F"
-    android:padding="8dp 16dp"
+    android:padding="10dp 16dp"
     android:elevation="8dp">
 
-    <!-- 时间显示 -->
+    <!-- 主时间显示 -->
     <TextView
         android:id="@+id/timeText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="00:00:00"
         android:textColor="#FFFFFF"
-        android:textSize="20sp"
+        android:textSize="22sp"
         android:textStyle="bold"
         android:fontFamily="monospace" />
 
-    <!-- 分隔线 -->
-    <View
-        android:layout_width="1dp"
-        android:layout_height="20dp"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:background="#40FFFFFF" />
-
-    <!-- 日期 -->
+    <!-- 毫秒显示 -->
     <TextView
-        android:id="@+id/dateText"
+        android:id="@+id/millisText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="--/--"
-        android:textColor="#E0E0E0"
-        android:textSize="12sp"
+        android:layout_marginTop="2dp"
+        android:text=".000"
+        android:textColor="#FFE0E0"
+        android:textSize="14sp"
         android:fontFamily="monospace" />
 
-    <!-- 分隔线 -->
-    <View
-        android:layout_width="1dp"
-        android:layout_height="20dp"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:background="#40FFFFFF" />
-
-    <!-- 来源标识 -->
-    <TextView
-        android:id="@+id/sourceText"
+    <!-- 底部信息栏 -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="淘"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold" />
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <!-- 同步状态点 -->
-    <View
-        android:id="@+id/syncDot"
-        android:layout_width="6dp"
-        android:layout_height="6dp"
-        android:layout_marginStart="6dp"
-        android:background="@drawable/sync_dot_success" />
+        <!-- 日期 -->
+        <TextView
+            android:id="@+id/dateText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--/--"
+            android:textColor="#E0E0E0"
+            android:textSize="10sp"
+            android:fontFamily="monospace" />
+
+        <!-- 分隔点 -->
+        <View
+            android:layout_width="3dp"
+            android:layout_height="3dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:background="#80FFFFFF" />
+
+        <!-- 来源标识 -->
+        <TextView
+            android:id="@+id/sourceText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="淘"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <!-- 同步状态点 -->
+        <View
+            android:id="@+id/syncDot"
+            android:layout_width="4dp"
+            android:layout_height="4dp"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/sync_dot_success" />
+
+    </LinearLayout>
 
 </LinearLayout>
