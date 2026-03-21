@@ -35,12 +35,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 悬浮时间前台服务
- * 
- * 支持:
- * 1. 全局悬浮窗显示
- * 2. Android 16 Live Notification (谷歌灵动岛)
- * 3. 淘宝/美团/本地时间同步
+ * 悬浮时间前台服务 - 带毫秒显示
  */
 public class FloatTimeService extends Service {
 
@@ -48,33 +43,29 @@ public class FloatTimeService extends Service {
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final int NOTIFICATION_ID = 20240320;
 
-    // 服务运行状态
     private static final AtomicBoolean sIsRunning = new AtomicBoolean(false);
     public static boolean isRunning() {
         return sIsRunning.get();
     }
 
-    // 系统服务
     private WindowManager mWindowManager;
     private NotificationManager mNotificationManager;
-    
-    // 悬浮视图
     private View mFloatView;
     private WindowManager.LayoutParams mFloatParams;
     
-    // UI 控件
     private TextView mTimeText;
+    private TextView mMillisText;
     private TextView mDateText;
     private TextView mSourceText;
     private View mSyncDot;
     
-    // 时间相关
     private Handler mHandler;
     private Runnable mTimeRunnable;
-    private String mTimeSource = "taobao"; // taobao, meituan, local
+    private String mTimeSource = "taobao";
     private long mOffsetMs = 0;
     private boolean mIsSyncing = false;
     private String mCurrentTimeStr = "";
+    private String mCurrentMillisStr = "";
 
     @Override
     public void onCreate() {
@@ -110,44 +101,32 @@ public class FloatTimeService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT
             );
             channel.setDescription("悬浮时间服务运行中");
             channel.setShowBadge(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             
             NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) {
-                nm.createNotificationChannel(channel);
-            }
+            if (nm != null) nm.createNotificationChannel(channel);
         }
     }
 
-    /**
-     * 创建通知 - Android 16 支持 Live Notification (灵动岛)
-     */
     private Notification createNotification() {
-        // 创建展开和折叠的 RemoteViews
         RemoteViews collapsedView = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
         RemoteViews expandedView = new RemoteViews(getPackageName(), R.layout.notification_expanded);
         
-        // 设置当前时间
         String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
         collapsedView.setTextViewText(R.id.notification_time, timeStr);
-        expandedView.setTextViewText(R.id.notification_time, timeStr);
+        expandedView.setTextViewText(R.id.notification_time, timeStr + (mCurrentMillisStr.isEmpty() ? "" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()))));
         
-        // 设置来源
         String sourceText = getSourceDisplayName();
         collapsedView.setTextViewText(R.id.notification_source, sourceText);
         expandedView.setTextViewText(R.id.notification_source, sourceText);
         
-        // 点击通知打开应用
         Intent intent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, 
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
         
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -163,21 +142,14 @@ public class FloatTimeService extends Service {
             .setCustomContentView(collapsedView)
             .setCustomBigContentView(expandedView);
         
-        // Android 16+ Live Notification 支持 (谷歌灵动岛)
         if (Build.VERSION.SDK_INT >= 36) {
-            // 使用新的 ProgressStyle 实现灵动岛效果
             builder.setStyle(new NotificationCompat.DecoratedCustomViewStyle());
-            
-            // 设置实时更新标志
             builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
         }
         
         return builder.build();
     }
 
-    /**
-     * 更新通知（实时更新时间 - 实现灵动岛效果）
-     */
     private void updateNotification() {
         if (mNotificationManager != null && !mCurrentTimeStr.isEmpty()) {
             try {
@@ -192,11 +164,11 @@ public class FloatTimeService extends Service {
         mFloatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
         
         mTimeText = mFloatView.findViewById(R.id.timeText);
+        mMillisText = mFloatView.findViewById(R.id.millisText);
         mDateText = mFloatView.findViewById(R.id.dateText);
         mSourceText = mFloatView.findViewById(R.id.sourceText);
         mSyncDot = mFloatView.findViewById(R.id.syncDot);
         
-        // 设置初始主题
         updateTheme();
         
         int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
@@ -268,7 +240,6 @@ public class FloatTimeService extends Service {
     }
 
     private void changeTimeSource() {
-        // 循环切换: taobao -> meituan -> local -> taobao
         if ("taobao".equals(mTimeSource)) {
             mTimeSource = "meituan";
         } else if ("meituan".equals(mTimeSource)) {
@@ -277,19 +248,14 @@ public class FloatTimeService extends Service {
             mTimeSource = "taobao";
         }
         
-        // 更新UI
         String sourceLabel = getSourceShortName();
         if (mSourceText != null) {
             mSourceText.setText(sourceLabel);
         }
         
         updateTheme();
-        
-        // 重置偏移并重新同步
         mOffsetMs = 0;
         syncTime();
-        
-        // 立即更新通知
         updateNotification();
     }
 
@@ -307,11 +273,11 @@ public class FloatTimeService extends Service {
         try {
             int bgColor;
             if ("taobao".equals(mTimeSource)) {
-                bgColor = 0xFFFF5A3F; // 淘宝橙
+                bgColor = 0xFFFF5A3F;
             } else if ("meituan".equals(mTimeSource)) {
-                bgColor = 0xFFFFB800; // 美团黄
+                bgColor = 0xFFFFB800;
             } else {
-                bgColor = 0xFF2196F3; // 蓝色
+                bgColor = 0xFF2196F3;
             }
             
             if (mFloatView != null) {
@@ -328,7 +294,7 @@ public class FloatTimeService extends Service {
             public void run() {
                 updateTime();
                 if (mHandler != null) {
-                    mHandler.postDelayed(this, 1000);
+                    mHandler.postDelayed(this, 50); // 50ms刷新，确保毫秒流畅
                 }
             }
         };
@@ -341,19 +307,26 @@ public class FloatTimeService extends Service {
             Date date = new Date(now);
             
             SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+            SimpleDateFormat millisFmt = new SimpleDateFormat("SSS", Locale.getDefault());
             SimpleDateFormat dateFmt = new SimpleDateFormat("MM/dd", Locale.getDefault());
             
             mCurrentTimeStr = timeFmt.format(date);
+            mCurrentMillisStr = millisFmt.format(date);
             
             if (mTimeText != null) {
                 mTimeText.setText(mCurrentTimeStr);
+            }
+            if (mMillisText != null) {
+                mMillisText.setText("." + mCurrentMillisStr);
             }
             if (mDateText != null) {
                 mDateText.setText(dateFmt.format(date));
             }
             
-            // 每秒更新通知（实现灵动岛实时效果）
-            updateNotification();
+            // 每100ms更新一次通知
+            if (now % 100 < 50) {
+                updateNotification();
+            }
             
         } catch (Exception e) {
             e.printStackTrace();
@@ -364,12 +337,12 @@ public class FloatTimeService extends Service {
         if (mIsSyncing) return;
         if ("local".equals(mTimeSource)) {
             mOffsetMs = 0;
-            updateSyncStatus(2); // 本地模式 - 灰色
+            updateSyncStatus(2);
             return;
         }
         
         mIsSyncing = true;
-        updateSyncStatus(0); // 同步中 - 蓝色
+        updateSyncStatus(0);
         
         new Thread(() -> {
             HttpURLConnection conn = null;
@@ -403,9 +376,9 @@ public class FloatTimeService extends Service {
                     long serverTime = parseServerTime(response.toString());
                     if (serverTime > 0) {
                         mOffsetMs = serverTime - localMid;
-                        updateSyncStatus(1); // 成功 - 绿色
+                        updateSyncStatus(1);
                     } else {
-                        updateSyncStatus(-1); // 失败 - 红色
+                        updateSyncStatus(-1);
                     }
                 } else {
                     updateSyncStatus(-1);
@@ -426,10 +399,10 @@ public class FloatTimeService extends Service {
             if (mSyncDot != null) {
                 int color;
                 switch (status) {
-                    case 0: color = 0xFF2196F3; break; // 蓝色 - 同步中
-                    case 1: color = 0xFF4CAF50; break; // 绿色 - 成功
-                    case 2: color = 0xFF9E9E9E; break; // 灰色 - 本地模式
-                    default: color = 0xFFF44336; // 红色 - 失败
+                    case 0: color = 0xFF2196F3; break;
+                    case 1: color = 0xFF4CAF50; break;
+                    case 2: color = 0xFF9E9E9E; break;
+                    default: color = 0xFFF44336;
                 }
                 mSyncDot.setBackgroundColor(color);
             }
@@ -440,7 +413,6 @@ public class FloatTimeService extends Service {
         try {
             JSONObject json = new JSONObject(response);
             
-            // 淘宝格式: {"data":{"t":"1234567890123"}}
             if (json.has("data")) {
                 JSONObject data = json.getJSONObject("data");
                 if (data.has("t")) {
@@ -449,13 +421,11 @@ public class FloatTimeService extends Service {
                 }
             }
             
-            // 美团格式: {"t":1234567890} (秒)
             if (json.has("t")) {
                 long t = json.getLong("t");
                 return t < 10000000000L ? t * 1000 : t;
             }
             
-            // 其他可能的格式
             if (json.has("timestamp")) {
                 long ts = json.getLong("timestamp");
                 return ts < 10000000000L ? ts * 1000 : ts;
