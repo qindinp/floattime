@@ -30,11 +30,34 @@
         android:textColor="#70FFFFFF"
         android:textSize="14sp" />
 
+    <!-- 当前时区显示 -->
+    <TextView
+        android:id="@+id/timezoneText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="时区: --"
+        android:textColor="#FF9800"
+        android:textSize="14sp"
+        android:fontFamily="monospace" />
+
+    <!-- 当前时间显示（带毫秒） -->
+    <TextView
+        android:id="+id/currentTimeText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="--:--:--.---"
+        android:textColor="#FFFFFF"
+        android:textSize="36sp"
+        android:textStyle="bold"
+        android:fontFamily="monospace" />
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="16dp"
         android:text="⭕ 服务未启动"
         android:textColor="#999999"
         android:textSize="14sp" />
