@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.widget.Button;
 import android.widget.TextView;
@@ -19,16 +21,26 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
+
 /**
  * 主界面 - 负责权限申请和服务启动
+ * 显示当前时区和毫秒级时间
  */
 public class MainActivity extends AppCompatActivity {
 
     private Button startBtn;
     private Button stopBtn;
     private TextView statusText;
+    private TextView timezoneText;
+    private TextView currentTimeText;
     
     private ActivityResultLauncher<Intent> overlayPermissionLauncher;
+    private Handler mHandler;
+    private Runnable mTimeRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,9 +65,17 @@ public class MainActivity extends AppCompatActivity {
         startBtn = findViewById(R.id.startBtn);
         stopBtn = findViewById(R.id.stopBtn);
         statusText = findViewById(R.id.statusText);
+        timezoneText = findViewById(R.id.timezoneText);
+        currentTimeText = findViewById(R.id.currentTimeText);
 
         startBtn.setOnClickListener(v -> checkOverlayPermission());
         stopBtn.setOnClickListener(v -> stopFloatingService());
+        
+        // 显示时区信息
+        displayTimezone();
+        
+        // 启动主界面时钟
+        startMainClock();
         
         updateStatus();
     }
@@ -64,6 +84,70 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateStatus();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mHandler != null && mTimeRunnable != null) {
+            mHandler.removeCallbacks(mTimeRunnable);
+        }
+    }
+
+    /**
+     * 显示当前时区信息
+     */
+    private void displayTimezone() {
+        TimeZone tz = TimeZone.getDefault();
+        String tzId = tz.getID();
+        String tzName = tz.getDisplayName(false, TimeZone.SHORT);
+        String tzFullName = tz.getDisplayName(false, TimeZone.LONG);
+        
+        // 获取时区偏移
+        int offset = tz.getRawOffset() / (1000 * 60 * 60);
+        String offsetStr = offset >= 0 ? "GMT+" + offset : "GMT" + offset;
+        
+        String displayText = tzId + " (" + offsetStr + ")";
+        if (timezoneText != null) {
+            timezoneText.setText(displayText);
+        }
+    }
+
+    /**
+     * 启动主界面时钟（带毫秒）
+     */
+    private void startMainClock() {
+        mHandler = new Handler(Looper.getMainLooper());
+        mTimeRunnable = new Runnable() {
+            @Override
+            public void run() {
+                updateMainTime();
+                if (mHandler != null) {
+                    mHandler.postDelayed(this, 50); // 50ms刷新一次，确保毫秒显示流畅
+                }
+            }
+        };
+        mHandler.post(mTimeRunnable);
+    }
+
+    /**
+     * 更新主界面时间（带毫秒）
+     */
+    private void updateMainTime() {
+        try {
+            long now = System.currentTimeMillis();
+            Date date = new Date(now);
+            
+            // 格式: HH:mm:ss.SSS
+            SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
+            String timeStr = timeFmt.format(date);
+            
+            if (currentTimeText != null) {
+                currentTimeText.setText(timeStr);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void updateStatus() {
@@ -117,7 +201,6 @@ public class MainActivity extends AppCompatActivity {
                     );
                     overlayPermissionLauncher.launch(intent);
                 } catch (Exception e) {
-                    // 直接打开应用设置
                     openAppSettings();
                 }
             })
@@ -149,7 +232,6 @@ public class MainActivity extends AppCompatActivity {
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 1002) {
-            // 无论通知权限是否授予，都启动服务
             startFloatingService();
         }
     }
