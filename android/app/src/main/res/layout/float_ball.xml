@@ -7,7 +7,7 @@
     android:orientation="vertical"
     android:gravity="center"
     android:background="#FF5A3F"
-    android:padding="10dp 16dp"
+    android:padding="12dp"
     android:elevation="8dp">
 
     <!-- 主时间显示 -->
