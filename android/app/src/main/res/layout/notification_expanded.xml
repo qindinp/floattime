@@ -1,31 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 通知栏展开布局 -->
+<!-- 通知栏展开视图 - 类似灵动岛展开样式 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="80dp"
-    android:background="@drawable/notification_bg_expanded"
-    android:gravity="center"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="16dp"
+    android:background="#1A1A2E">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@android:drawable/ic_lock_idle_alarm"
+            android:tint="#FF5A3F" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="悬浮时间"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/notification_source"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="淘宝时间"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
 
     <TextView
-        android:id="@+id/notifTimeBig"
-        android:layout_width="wrap_content"
+        android:id="@+id/notification_time"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="00:00:00"
+        android:layout_marginTop="16dp"
+        android:text="--:--:--"
         android:textColor="#FFFFFF"
-        android:textSize="32sp"
+        android:textSize="48sp"
         android:textStyle="bold"
         android:fontFamily="monospace"
-        android:letterSpacing="0.05" />
+        android:gravity="center" />
 
     <TextView
-        android:id="@+id/notifDateBig"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="----/--/--"
-        android:textColor="#99FFFFFF"
-        android:textSize="14sp" />
+        android:layout_marginTop="8dp"
+        android:text="点击悬浮球切换时间源"
+        android:textColor="#666666"
+        android:textSize="12sp"
+        android:gravity="center" />
 
 </LinearLayout>
