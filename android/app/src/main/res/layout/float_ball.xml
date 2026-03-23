@@ -1,81 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球布局 - 灵动岛风格，带毫秒显示 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/floatContainer"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:background="#FF5A3F"
-    android:padding="12dp"
+<!-- 悬浮球布局 - 圆角磨砂效果 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="110dp"
+    android:layout_height="80dp"
+    android:background="@drawable/float_ball_bg"
     android:elevation="8dp">
 
-    <!-- 主时间显示 -->
-    <TextView
-        android:id="@+id/timeText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="00:00:00"
-        android:textColor="#FFFFFF"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:fontFamily="monospace" />
-
-    <!-- 毫秒显示 -->
-    <TextView
-        android:id="@+id/millisText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:text=".000"
-        android:textColor="#FFE0E0"
-        android:textSize="14sp"
-        android:fontFamily="monospace" />
-
-    <!-- 底部信息栏 -->
     <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="8dp">
 
-        <!-- 日期 -->
+        <!-- 时间显示 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical|center_horizontal">
+
+            <TextView
+                android:id="@+id/timeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00:00"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:shadowColor="#80000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="2"/>
+
+            <TextView
+                android:id="@+id/millisText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=".000"
+                android:textSize="12sp"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:alpha="0.8"/>
+
+        </LinearLayout>
+
+        <!-- 日期显示 -->
         <TextView
             android:id="@+id/dateText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="--/--"
-            android:textColor="#E0E0E0"
+            android:text="01/01"
             android:textSize="10sp"
-            android:fontFamily="monospace" />
+            android:textColor="#FFFFFF"
+            android:alpha="0.8"
+            android:layout_marginTop="2dp"/>
 
-        <!-- 分隔点 -->
-        <View
-            android:layout_width="3dp"
-            android:layout_height="3dp"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="6dp"
-            android:background="#80FFFFFF" />
-
-        <!-- 来源标识 -->
+        <!-- 时间源标识 -->
         <TextView
             android:id="@+id/sourceText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="淘"
+            android:textSize="11sp"
+            android:textStyle="bold"
             android:textColor="#FFFFFF"
-            android:textSize="10sp"
-            android:textStyle="bold" />
-
-        <!-- 同步状态点 -->
-        <View
-            android:id="@+id/syncDot"
-            android:layout_width="4dp"
-            android:layout_height="4dp"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/sync_dot_success" />
+            android:layout_marginTop="2dp"/>
 
     </LinearLayout>
 
-</LinearLayout>
+    <!-- 同步状态指示点 -->
+    <View
+        android:id="@+id/syncDot"
+        android:layout_width="6dp"
+        android:layout_height="6dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="6dp"
+        android:layout_marginEnd="6dp"
+        android:background="@drawable/sync_dot_bg"/>
+
+</FrameLayout>
