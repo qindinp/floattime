@@ -357,6 +357,7 @@ onUnmounted(() => {
     <!-- Floating Ball -->
     <div
       class="float-ball"
+      :class="{ 'is-dark': isDarkMode }"
       :style="{ left: floatX+'px', top: floatY+'px', background: themeBg, boxShadow: `0 4px 20px rgba(0,0,0,.3),0 0 0 2px ${themeColor}44` }"
       @mousedown="onFloatMouseDown"
       @touchstart.prevent="onFloatTouchStart"
@@ -487,8 +488,18 @@ onUnmounted(() => {
   pointer-events: all;
 }
 .float-ball:active { cursor: grabbing; }
-.float-time { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 1px; font-variant-numeric: tabular-nums; line-height: 1.2; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
-.float-date { font-size: 11px; color: rgba(255,255,255,.8); margin-top: 1px; font-variant-numeric: tabular-nums; }
+
+/* 夜间模式悬浮球 */
+.float-ball.is-dark .float-time { color: #e8e8e8; text-shadow: 0 0 8px rgba(255,255,255,.25), 0 1px 3px rgba(0,0,0,.5); }
+.float-ball.is-dark .float-date { color: rgba(255,255,255,.6); }
+.float-ball.is-dark .float-src { opacity: .7; }
+
+/* 日间模式 */
+.float-ball:not(.is-dark) .float-time { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.float-ball:not(.is-dark) .float-date { color: rgba(255,255,255,.8); }
+
+.float-time { font-size: 22px; font-weight: 700; letter-spacing: 1px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.float-date { font-size: 11px; margin-top: 1px; font-variant-numeric: tabular-nums; }
 .float-src { font-size: 11px; font-weight: 600; margin-top: 3px; opacity: .9; }
 
 .sync-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: #ccc; }
