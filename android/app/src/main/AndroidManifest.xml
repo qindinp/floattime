@@ -23,7 +23,7 @@
         android:theme="@style/AppTheme.NoActionBar"
         android:usesCleartextTraffic="true">
 
-        <!-- 主 Activity - 简化主题 -->
+        <!-- 主 Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -37,6 +37,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Bubble Activity - 用于 Live Activity 展开显示 -->
+        <activity
+            android:name=".BubbleActivity"
+            android:exported="true"
+            android:theme="@style/AppTheme.Transparent"
+            android:taskAffinity=""
+            android:allowEmbedded="true"
+            android:resizeableActivity="true">
+            
+            <!-- Shortcut for Bubble -->
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_SHORTCUT" />
+            </intent-filter>
+            
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
         <!-- 前台服务 -->
         <service
             android:name=".FloatTimeService"
@@ -47,6 +66,13 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating_clock" />
         </service>
+
+        <!-- ✅ Live Activity Service -->
+        <service
+            android:name=".FloatTimeLiveActivity"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
 
         <!-- 文件提供者 -->
         <provider

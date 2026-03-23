@@ -4,4 +4,8 @@
     <string name="title_activity_main">FloatTime</string>
     <string name="package_name">com.floattime.app</string>
     <string name="custom_url_scheme">com.floattime.app</string>
+    
+    <!-- ✅ Shortcut strings -->
+    <string name="shortcut_short_label">悬浮时间</string>
+    <string name="shortcut_long_label">悬浮时间 - 实时校准时钟</string>
 </resources>
