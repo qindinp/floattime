@@ -25,10 +25,12 @@ export function useTheme() {
     const root = document.documentElement
     if (isDarkMode.value) {
       root.classList.add('dark-theme')
+      root.classList.add('is-dark')
       root.classList.remove('light-theme')
     } else {
       root.classList.add('light-theme')
       root.classList.remove('dark-theme')
+      root.classList.remove('is-dark')
     }
   }
 

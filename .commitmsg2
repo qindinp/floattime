@@ -1,0 +1,5 @@
+fix: 修复暗夜模式样式类名不一致问题
+
+- index.html 预加载脚本添加 is-dark 类
+- useTheme.ts applyTheme 同步添加/移除 is-dark 类
+- 确保组件样式正确响应暗夜模式

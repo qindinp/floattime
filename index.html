@@ -9,8 +9,13 @@
       var saved = localStorage.getItem('floattime-theme') || 'auto';
       var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       var isDark = saved === 'dark' || (saved === 'auto' && prefersDark);
-      if (isDark) document.documentElement.classList.add('dark-theme');
-      else document.documentElement.classList.add('light-theme');
+      if (isDark) {
+        document.documentElement.classList.add('dark-theme');
+        document.documentElement.classList.add('is-dark');
+      } else {
+        document.documentElement.classList.add('light-theme');
+        document.documentElement.classList.remove('is-dark');
+      }
     })();
   </script>
   <title>悬浮时间</title>
