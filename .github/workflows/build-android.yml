@@ -24,23 +24,22 @@ jobs:
       - name: Build web app
         run: npx vite build
 
-      - name: Add Capacitor Android
-        run: npx cap add android
-
-      - name: Sync web to Android
-        run: npx cap copy android && npx cap sync android
-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Sync web assets to Android
+        run: |
+          npx cap copy android
+          npx cap sync android
+
       - name: Build debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
