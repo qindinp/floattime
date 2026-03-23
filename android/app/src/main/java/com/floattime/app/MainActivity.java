@@ -100,20 +100,18 @@ public class MainActivity extends AppCompatActivity {
         
         // 设置版本信息
         if (versionText != null) {
-            versionText.setText("FloatTime v1.2.0");
+            versionText.setText("FloatTime v1.2.1");
         }
         
-        // 设置主题选择
+        // 设置主题选择并应用保存的主题
         setupThemeSelector();
+        applyThemeMode(mPrefs.getInt(KEY_THEME_MODE, 0));
         
         // 显示时区信息
         displayTimezone();
         
         // 启动主界面时钟
         startMainClock();
-        
-        // 加载日志
-        loadLog();
         
         updateStatus();
         
@@ -216,7 +214,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateStatus();
-        loadLog();
     }
 
     @Override

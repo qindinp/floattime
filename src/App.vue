@@ -534,6 +534,33 @@ onUnmounted(() => {
 .settings-panel.is-dark .status-label,
 .settings-panel.is-dark .stopwatch-title { color: rgba(255,255,255,.45); }
 
+/* 深色主题 - 主题按钮 */
+.settings-panel.is-dark .theme-btn { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); color: rgba(255,255,255,.8); }
+.settings-panel.is-dark .theme-btn:hover { background: rgba(255,255,255,.12); }
+.settings-panel.is-dark .theme-btn.active { border-color: #6B9FFF; background: rgba(107,159,255,.2); color: #fff; }
+
+/* 深色主题 - 源列表项 */
+.settings-panel.is-dark .source-item { background: rgba(255,255,255,.05); }
+.settings-panel.is-dark .source-item:hover { background: rgba(255,255,255,.1); }
+.settings-panel.is-dark .source-item.taobao.active  { border-color: #FF6B3D; background: rgba(255,107,61,.15); }
+.settings-panel.is-dark .source-item.meituan.active { border-color: #FFD54F; background: rgba(255,213,79,.15); }
+.settings-panel.is-dark .source-item.local.active   { border-color: #64B5F6; background: rgba(100,181,246,.15); }
+
+/* 深色主题 - 状态栏 */
+.settings-panel.is-dark .status-bar { background: rgba(255,255,255,.05); }
+.settings-panel.is-dark .status-item { border-right-color: rgba(255,255,255,.08); }
+.settings-panel.is-dark .sync-btn { background: rgba(255,255,255,.1); color: #fff; }
+.settings-panel.is-dark .sync-btn:hover:not(:disabled) { background: rgba(255,255,255,.2); }
+
+/* 深色主题 - 秒表 */
+.settings-panel.is-dark .stopwatch { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); }
+.settings-panel.is-dark .stopwatch-btns button { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); color: #fff; }
+.settings-panel.is-dark .stopwatch-btns button:hover { background: rgba(255,255,255,.15); }
+
+/* 深色主题 - 关闭按钮 */
+.settings-panel.is-dark .close-btn { background: rgba(255,255,255,.1); color: rgba(255,255,255,.6); }
+.settings-panel.is-dark .close-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
+
 /* 浅色主题 */
 .settings-panel:not(.is-dark) {
   background: rgba(255,255,255,.97);
