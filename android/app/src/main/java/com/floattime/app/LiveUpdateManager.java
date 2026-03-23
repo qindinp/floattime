@@ -109,12 +109,6 @@ public class LiveUpdateManager {
             .setProgress(0, 0, true)  // 不确定进度
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-        
-        // Android 16+ 添加 Live Update 标志
-        if (isLiveUpdateSupported()) {
-            builder.setFlag(Notification.FLAG_FOREGROUND_SERVICE, true);
-        }
-        
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
     }
     
@@ -134,12 +128,6 @@ public class LiveUpdateManager {
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true);
-        
-        // Android 16+ 添加 Live Update 标志
-        if (isLiveUpdateSupported()) {
-            builder.setFlag(Notification.FLAG_FOREGROUND_SERVICE, true);
-        }
-        
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
         
         // 3秒后自动清除
@@ -164,7 +152,6 @@ public class LiveUpdateManager {
             .setAutoCancel(true);
         
         if (isLiveUpdateSupported()) {
-            builder.setFlag(Notification.FLAG_FOREGROUND_SERVICE, true);
         }
         
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
@@ -244,8 +231,6 @@ public class LiveUpdateManager {
         
         // Android 16+ Live Updates
         if (isLiveUpdateSupported()) {
-            builder.setFlag(Notification.FLAG_FOREGROUND_SERVICE, true);
-            
             // 添加进度样式（Android 16+）
             if (Build.VERSION.SDK_INT >= 36) {
                 // 使用原生进度样式
