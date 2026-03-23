@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 悬浮时间前台服务
- * 使用通知栏 + Android 16 Live Updates 显示实时时间
+ * 使用通知栏显示实时校准时间
  */
 public class FloatTimeService extends Service {
 
@@ -84,7 +84,7 @@ public class FloatTimeService extends Service {
         startClock();
         syncTime();
         
-        log("FloatTimeService started, LiveUpdate: " + mLiveUpdateManager.isSupported());
+        log("FloatTimeService started, LiveUpdate supported: " + mLiveUpdateManager.isSupported());
     }
 
     private void loadPreferences() {
@@ -111,6 +111,8 @@ public class FloatTimeService extends Service {
             channel.setDescription("显示实时校准时间");
             channel.setShowBadge(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            channel.enableLights(false);
+            channel.setSound(null, null);
             
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
@@ -119,52 +121,35 @@ public class FloatTimeService extends Service {
         }
     }
 
-    /**
-     * 创建通知 — 使用 LiveUpdateManager (API 36+) 或普通通知
-     */
     private Notification createNotification() {
         try {
             String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
             String millisStr = mCurrentMillisStr.isEmpty() ? ".000" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()));
-            String sourceName = getSourceDisplayName();
-
-            if (mLiveUpdateManager != null && mLiveUpdateManager.isSupported()) {
-                // Android 16+: Live Updates
-                return mLiveUpdateManager.createClockNotification(
-                    this, timeStr, millisStr, sourceName, mIsNightMode
-                );
-            }
-
-            // 兼容旧版本: RemoteViews 通知
-            RemoteViews collapsedView = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
-            RemoteViews expandedView = new RemoteViews(getPackageName(), R.layout.notification_expanded);
             
-            collapsedView.setTextViewText(R.id.notification_time, timeStr);
-            expandedView.setTextViewText(R.id.notification_time, timeStr + millisStr);
-            expandedView.setTextViewText(R.id.notification_source, sourceName);
-            
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            // 使用 LiveUpdateManager 创建通知
+            Notification notification = mLiveUpdateManager.createClockNotification(
+                this, timeStr, millisStr, getSourceDisplayName(), mIsNightMode
             );
             
+            // 确保使用正确的前台服务类型
             NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentIntent(pendingIntent)
+                .setContentTitle(timeStr + millisStr)
+                .setContentText(getSourceDisplayName())
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setOnlyAlertOnce(true)
-                .setCustomContentView(collapsedView)
-                .setCustomBigContentView(expandedView);
-            
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+
+            // Android 12+ 前台服务行为
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
             }
-            
+
             return builder.build();
+            
         } catch (Exception e) {
             log("createNotification error: " + e.getMessage());
             return new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -202,7 +187,7 @@ public class FloatTimeService extends Service {
             mCurrentTimeStr = timeStr;
             mCurrentMillisStr = String.format(Locale.getDefault(), "%03d", now % 1000);
             
-            // 更新通知
+            // 每100ms更新一次通知
             if (now % 100 < 50) {
                 updateNotification();
             }
@@ -228,15 +213,7 @@ public class FloatTimeService extends Service {
         }
         if (mNotificationManager != null) {
             try {
-                // Android 16+: 更新 Live Update
-                if (mLiveUpdateManager != null && mLiveUpdateManager.isSupported()) {
-                    mLiveUpdateManager.updateClock(
-                        this, mCurrentTimeStr,
-                        "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length())),
-                        getSourceDisplayName()
-                    );
-                }
-                // 通知也需要更新（前台服务要求）
+                // 更新前台通知
                 mNotificationManager.notify(NOTIFICATION_ID, createNotification());
             } catch (Exception e) {
                 log("updateNotification error: " + e.getMessage());
@@ -252,17 +229,14 @@ public class FloatTimeService extends Service {
         if ("local".equals(mTimeSource)) {
             mOffsetMs = 0;
             mPrefs.edit().putLong(KEY_OFFSET_MS, 0).apply();
-            log("Local time mode");
+            mLiveUpdateManager.showTimeSyncSuccess("local", 0);
+            log("Local time mode, offset=0");
             mIsSyncing.set(false);
             return;
         }
         
         log("Syncing time from: " + mTimeSource);
-        
-        // 显示 Live Update
-        if (mLiveUpdateManager != null) {
-            mLiveUpdateManager.showTimeSyncing(mTimeSource);
-        }
+        mLiveUpdateManager.showTimeSyncing(mTimeSource);
         
         new Thread(() -> {
             HttpURLConnection conn = null;
@@ -298,29 +272,20 @@ public class FloatTimeService extends Service {
                     if (serverTime > 0) {
                         mOffsetMs = serverTime - localMid;
                         mPrefs.edit().putLong(KEY_OFFSET_MS, mOffsetMs).apply();
+                        mLiveUpdateManager.showTimeSyncSuccess(mTimeSource, mOffsetMs);
                         log("Time synced: offset=" + mOffsetMs + "ms");
-                        
-                        if (mLiveUpdateManager != null) {
-                            mLiveUpdateManager.showTimeSyncSuccess(mTimeSource, mOffsetMs);
-                        }
                     } else {
+                        mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
                         log("Failed to parse server time");
-                        if (mLiveUpdateManager != null) {
-                            mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
-                        }
                     }
                 } else {
+                    mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
                     log("HTTP error: " + responseCode);
-                    if (mLiveUpdateManager != null) {
-                        mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
-                    }
                 }
                 
             } catch (Exception e) {
+                mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
                 log("syncTime error: " + e.getMessage());
-                if (mLiveUpdateManager != null) {
-                    mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
-                }
             } finally {
                 if (conn != null) conn.disconnect();
                 mIsSyncing.set(false);
