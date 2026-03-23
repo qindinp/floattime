@@ -110,8 +110,8 @@ public class MainActivity extends AppCompatActivity {
         themeDark = findViewById(R.id.themeDark);
 
         startBtn.setOnClickListener(v -> {
-            // ✅ 添加悬浮窗开关选项
-            showFloatingWindowOptions();
+            // ✅ 检查悬浮窗权限并显示选项
+            checkOverlayPermission();
         });
         stopBtn.setOnClickListener(v -> stopFloatingService());
         
