@@ -1,9 +1,7 @@
 package com.floattime.app
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Person
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -14,15 +12,12 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.Person.Builder as PersonBuilder
 
 /**
  * FloatTime Live Activity Service
  * 
  * 使用 Android 12+ 的 Bubbles API 在通知栏创建类似超级岛的效果
  * Bubbles 会以浮动圆角卡片的形式显示在屏幕上
- * 
- * 注意：需要在 AndroidManifest.xml 中注册 BubbleActivity
  */
 class FloatTimeLiveActivity : Service() {
 
@@ -35,11 +30,6 @@ class FloatTimeLiveActivity : Service() {
         
         // 通知 ID
         private const val NOTIFICATION_ID = 20240321
-        
-        // Bubble Activity 的 Intent
-        private var sBubbleIntent: Intent? = null
-        private var sBubbleIcon: Icon? = null
-        private var sBubbleTitle: String = "悬浮时间"
         
         /**
          * 启动 Live Activity
@@ -76,17 +66,9 @@ class FloatTimeLiveActivity : Service() {
             }
             context.startService(intent)
         }
-        
-        /**
-         * 设置 Bubble 元数据
-         */
-        fun setBubbleMetadata(title: String, iconResId: Int) {
-            sBubbleTitle = title
-        }
     }
     
     private var mNotificationManager: NotificationManager? = null
-    private var mHandler: Handler? = null
     private var mCurrentTime: String = "--:--:--"
     private var mCurrentMillis: String = ".000"
     private var mCurrentSource: String = "悬浮时间"
@@ -94,8 +76,6 @@ class FloatTimeLiveActivity : Service() {
     override fun onCreate() {
         super.onCreate()
         mNotificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        mHandler = Handler(Looper.getMainLooper())
-        
         createNotificationChannel()
         Log.d(TAG, "FloatTimeLiveActivity started")
     }
@@ -133,11 +113,11 @@ class FloatTimeLiveActivity : Service() {
                 setName(CHANNEL_NAME)
                 setDescription("悬浮时间的实时活动显示")
                 setShowBadge(true)
-                setAllowBubbles(true)  // ✅ 启用气泡通知
+                setAllowBubbles(true)
                 setLightsEnabled(true)
                 setLightColor(0xFFFF6B35.toInt())
                 setVibrationEnabled(true)
-                setBypassDnd(true)  // ✅ 绕过勿扰模式
+                setBypassDnd(true)
             }.build()
             
             mNotificationManager?.createNotificationChannel(channel)
@@ -158,59 +138,32 @@ class FloatTimeLiveActivity : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             
-            // 创建 BubbleMetadata
+            // Bubble Activity 的 PendingIntent
             val bubbleIntent = PendingIntent.getActivity(
                 this, 1, mainIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             )
             
-            // ✅ 创建头像/图标
+            // 创建图标
             val shortcutIcon = Icon.createWithResource(this, android.R.drawable.ic_lock_idle_alarm)
             
-            // ✅ 创建 BubbleMetadata.Builder
+            // 构建 BubbleMetadata
             val bubbleMetadata = NotificationCompat.BubbleMetadata.Builder(
                 shortcutIcon,
                 bubbleIntent
             ).apply {
-                // 设置 Bubble 展开时的高度
                 setDesiredHeight(300)
-                // 设置为自动展开
                 setAutoExpandBubble(true)
-                // 不在通知栏显示额外通知
                 setSuppressNotification(false)
-                // 设置棉绒文字
-                setExpandedTitle(mCurrentSource)
-                setExpandedText("$mCurrentTime$mCurrentMillis")
             }.build()
             
-            // ✅ 创建一个 Person 作为 Bubble 的联系人信息
-            val person = Person.Builder().apply {
-                setName(mCurrentSource)
-                setIcon(shortcutIcon)
-                setImportant(true)
-            }.build()
-            
-            // ✅ 创建 MessagingStyle 来支持实时更新
-            val messagingStyle = NotificationCompat.MessagingStyle(person).apply {
-                // 添加初始消息
-                addMessage(
-                    "$mCurrentTime$mCurrentMillis",
-                    System.currentTimeMillis(),
-                    person
-                )
-                // 允许对话
-                setConversationTitle(mCurrentSource)
-                setGroupConversation(false)
-            }
-            
-            // ✅ 构建通知
+            // 构建通知
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(mCurrentSource)
                 .setContentText("$mCurrentTime$mCurrentMillis")
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setContentIntent(pendingIntent)
                 .setBubbleMetadata(bubbleMetadata)
-                .setStyle(messagingStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setOngoing(true)
@@ -221,7 +174,7 @@ class FloatTimeLiveActivity : Service() {
                 .build()
             
             mNotificationManager?.notify(NOTIFICATION_ID, notification)
-            Log.d(TAG, "Live Activity (Bubble) shown: $mCurrentTime$mCurrentMillis")
+            Log.d(TAG, "Live Activity shown: $mCurrentTime$mCurrentMillis")
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show Live Activity: ${e.message}")
