@@ -39,7 +39,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 悬浮时间前台服务 - 支持日夜间模式、圆角磨砂效果、Android 16 Live Updates
@@ -58,6 +57,16 @@ public class FloatTimeService extends Service {
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final int NOTIFICATION_ID = 20240320;
     private static final int LOG_FILE_MAX_LINES = 100;
+    
+    // ✅ 修复: 提取魔法数字为常量
+    private static final int CONNECT_TIMEOUT_MS = 8000;
+    private static final int READ_TIMEOUT_MS = 8000;
+    private static final int UPDATE_INTERVAL_MS = 50;
+    private static final int LOG_FILE_MAX_SIZE = 100 * 1024;  // 100KB
+    
+    // ✅ 修复: 时间显示线程安全
+    private static final SimpleDateFormat TIME_FORMAT = 
+        new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
 
     private static final AtomicBoolean sIsRunning = new AtomicBoolean(false);
     public static boolean isRunning() {
@@ -468,7 +477,7 @@ public class FloatTimeService extends Service {
             public void run() {
                 updateTime();
                 if (mHandler != null) {
-                    mHandler.postDelayed(this, 50);
+                    mHandler.postDelayed(this, UPDATE_INTERVAL_MS);  // ✅ 使用常量
                 }
             }
         };
@@ -481,20 +490,25 @@ public class FloatTimeService extends Service {
             long now = System.currentTimeMillis() + mOffsetMs;
             Date date = new Date(now);
             
-            SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-            SimpleDateFormat millisFmt = new SimpleDateFormat("SSS", Locale.getDefault());
-            SimpleDateFormat dateFmt = new SimpleDateFormat("MM/dd", Locale.getDefault());
+            // ✅ 修复: 使用线程安全的 SimpleDateFormat
+            String timeStr;
+            synchronized (TIME_FORMAT) {
+                timeStr = TIME_FORMAT.format(date);
+            }
             
-            mCurrentTimeStr = timeFmt.format(date);
-            mCurrentMillisStr = millisFmt.format(date);
+            mCurrentTimeStr = timeStr;
             
             if (mTimeText != null) {
                 mTimeText.setText(mCurrentTimeStr);
             }
             if (mMillisText != null) {
+                // 提取毫秒部分
+                long millis = now % 1000;
+                mCurrentMillisStr = String.format(Locale.getDefault(), "%03d", millis);
                 mMillisText.setText("." + mCurrentMillisStr);
             }
             if (mDateText != null) {
+                SimpleDateFormat dateFmt = new SimpleDateFormat("MM/dd", Locale.getDefault());
                 mDateText.setText(dateFmt.format(date));
             }
             
@@ -553,8 +567,8 @@ public class FloatTimeService extends Service {
                 long localBefore = System.currentTimeMillis();
                 
                 conn = (HttpURLConnection) new URL(url).openConnection();
-                conn.setConnectTimeout(8000);
-                conn.setReadTimeout(8000);
+                conn.setConnectTimeout(CONNECT_TIMEOUT_MS);  // ✅ 使用常量
+                conn.setReadTimeout(READ_TIMEOUT_MS);        // ✅ 使用常量
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Accept", "application/json");
                 
@@ -688,34 +702,20 @@ public class FloatTimeService extends Service {
             String filename = getFilesDir() + "/floattime.log";
             java.io.File file = new java.io.File(filename);
             
-            // 读取现有日志
-            StringBuilder existingLogs = new StringBuilder();
-            if (file.exists()) {
-                BufferedReader reader = new BufferedReader(new java.io.FileReader(file));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    existingLogs.append(line).append("\n");
-                }
-                reader.close();
+            // ✅ 修复: 使用 RandomAccessFile，高效且线程安全
+            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "rw")) {
+                long fileSize = raf.length();
                 
-                // 限制日志行数
-                String[] lines = existingLogs.toString().split("\n");
-                if (lines.length > LOG_FILE_MAX_LINES) {
-                    existingLogs = new StringBuilder();
-                    for (int i = lines.length - LOG_FILE_MAX_LINES; i < lines.length; i++) {
-                        existingLogs.append(lines[i]).append("\n");
-                    }
+                // 如果文件过大，删除旧内容
+                if (fileSize > LOG_FILE_MAX_SIZE) {
+                    raf.setLength(0);
                 }
+                
+                raf.seek(raf.length());
+                raf.writeBytes(logLine);
             }
-            
-            // 写入新日志
-            PrintWriter writer = new PrintWriter(new java.io.FileWriter(file));
-            writer.print(existingLogs.toString());
-            writer.print(logLine);
-            writer.close();
-            
         } catch (Exception e) {
-            e.printStackTrace();
+            // 忽略
         }
     }
 

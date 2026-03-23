@@ -324,7 +324,8 @@ public class LiveUpdateManager {
     }
     
     private void notify(int id, Notification notification) {
-        if (mNotificationManager != null) {
+        // ✅ 修复: 添加 null 检查
+        if (mNotificationManager != null && notification != null) {
             mNotificationManager.notify(id, notification);
         }
     }
