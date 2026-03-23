@@ -42,7 +42,7 @@ public class FloatTimeService extends Service {
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final int NOTIFICATION_ID = 20240320;
 
-    private static final int UPDATE_INTERVAL_MS = 100;
+    private static final int UPDATE_INTERVAL_MS = 1000;
     private static final int CONNECT_TIMEOUT_MS = 3000;
     private static final int READ_TIMEOUT_MS = 3000;
 
@@ -203,9 +203,7 @@ public class FloatTimeService extends Service {
             mCurrentMillisStr = String.format(Locale.getDefault(), "%03d", now % 1000);
             
             // 更新通知
-            if (now % 100 < 50) {
-                updateNotification();
-            }
+            updateNotification();
             
             // 检查主题切换
             if (mThemeMode == 0) {

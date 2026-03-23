@@ -40,7 +40,7 @@ export class LiveUpdateManager {
     if (!isAndroid()) return false
     
     try {
-      return this.bridge?.isLiveUpdateSupported() ?? false
+      return this.bridge?.isSupported() ?? false
     } catch (e) {
       console.warn('[LiveUpdate] Check support failed:', e)
       return false
