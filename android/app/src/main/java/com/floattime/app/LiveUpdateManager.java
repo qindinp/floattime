@@ -410,7 +410,8 @@ public class LiveUpdateManager {
                     .setVisibility(Notification.VISIBILITY_PUBLIC);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                nativeBuilder.setForegroundBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+                // FOREGROUND_SERVICE_IMMEDIATE = 1
+                nativeBuilder.setForegroundBehavior(1);
             }
 
             // 调用 setProgressStyle
@@ -425,6 +426,31 @@ public class LiveUpdateManager {
         } catch (Exception e) {
             Log.e(TAG, "applyStyleToNotification failed: " + e.getMessage());
         }
+    }
+
+    // ================================================================
+    //  秒表功能 (预留)
+    // ================================================================
+
+    /**
+     * 启动秒表
+     */
+    public void startStopwatch() {
+        Log.d(TAG, "startStopwatch: not implemented");
+    }
+
+    /**
+     * 暂停秒表
+     */
+    public void pauseStopwatch() {
+        Log.d(TAG, "pauseStopwatch: not implemented");
+    }
+
+    /**
+     * 停止秒表
+     */
+    public void stopStopwatch() {
+        Log.d(TAG, "stopStopwatch: not implemented");
     }
 
     // ================================================================
