@@ -319,17 +319,30 @@ public class FloatTimeService extends Service {
     }
 
     private void createFloatingView() {
+        log("createFloatingView: starting...");
+        
         try {
             // ✅ 检查权限
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (!Settings.canDrawOverlays(this)) {
+                boolean hasPermission = Settings.canDrawOverlays(this);
+                log("Overlay permission: " + hasPermission);
+                if (!hasPermission) {
                     Log.w(TAG, "No overlay permission, cannot create floating view");
                     return;
                 }
             }
             
+            log("Creating floating view...");
+            
             // ✅ 使用 application context 避免 BadTokenException
-            mFloatView = LayoutInflater.from(getApplicationContext()).inflate(R.layout.float_ball, null);
+            try {
+                mFloatView = LayoutInflater.from(getApplicationContext()).inflate(R.layout.float_ball, null);
+                log("Layout inflated: " + (mFloatView != null ? "success" : "null"));
+            } catch (Exception e) {
+                log("Layout inflate failed: " + e.getMessage());
+                e.printStackTrace();
+                return;
+            }
             
             // ✅ 验证悬浮窗视图是否创建成功
             if (mFloatView == null) {
@@ -366,10 +379,15 @@ public class FloatTimeService extends Service {
             setupTouchListener();
             
             // ✅ 尝试添加悬浮窗
-            if (mWindowManager != null && mFloatView != null) {
+            log("WindowManager: " + (mWindowManager != null ? "ok" : "null"));
+            log("FloatView: " + (mFloatView != null ? "ok" : "null"));
+            log("FloatParams: " + (mFloatParams != null ? "ok" : "null"));
+            
+            if (mWindowManager != null && mFloatView != null && mFloatParams != null) {
                 try {
+                    log("Attempting to add view...");
                     mWindowManager.addView(mFloatView, mFloatParams);
-                    Log.d(TAG, "Floating view created successfully");
+                    Log.d(TAG, "✅ Floating view created successfully");
                 } catch (WindowManager.BadTokenException e) {
                     // ✅ BadTokenException 不再静默失败，而是延迟重试
                     Log.w(TAG, "BadTokenException, will retry: " + e.getMessage());
@@ -380,14 +398,19 @@ public class FloatTimeService extends Service {
                     }, 1000);
                 } catch (IllegalArgumentException e) {
                     Log.e(TAG, "IllegalArgumentException: " + e.getMessage());
+                    e.printStackTrace();
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to add floating view: " + e.getMessage());
+                    e.printStackTrace();
                     // ✅ 延迟重试
                     mHandler.postDelayed(this::retryCreateFloatingView, 2000);
                 }
+            } else {
+                Log.e(TAG, "Cannot add floating view: some dependencies are null");
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to create floating view: " + e.getMessage(), e);
+            e.printStackTrace();
             // ✅ 延迟重试
             mHandler.postDelayed(this::retryCreateFloatingView, 2000);
         }
