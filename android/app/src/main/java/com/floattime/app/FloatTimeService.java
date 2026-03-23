@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
@@ -27,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 悬浮时间前台服务
- * 使用通知栏显示实时时间，支持小米超级岛（Android 12+）
+ * 使用通知栏 + Android 16 Live Updates 显示实时时间
  */
 public class FloatTimeService extends Service {
 
@@ -83,7 +84,7 @@ public class FloatTimeService extends Service {
         startClock();
         syncTime();
         
-        log("FloatTimeService started, LiveUpdate: " + mLiveUpdateManager.isLiveUpdateSupported());
+        log("FloatTimeService started, LiveUpdate: " + mLiveUpdateManager.isSupported());
     }
 
     private void loadPreferences() {
@@ -118,17 +119,29 @@ public class FloatTimeService extends Service {
         }
     }
 
+    /**
+     * 创建通知 — 使用 LiveUpdateManager (API 36+) 或普通通知
+     */
     private Notification createNotification() {
         try {
+            String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
+            String millisStr = mCurrentMillisStr.isEmpty() ? ".000" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()));
+            String sourceName = getSourceDisplayName();
+
+            if (mLiveUpdateManager != null && mLiveUpdateManager.isSupported()) {
+                // Android 16+: Live Updates
+                return mLiveUpdateManager.createClockNotification(
+                    this, timeStr, millisStr, sourceName, mIsNightMode
+                );
+            }
+
+            // 兼容旧版本: RemoteViews 通知
             RemoteViews collapsedView = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
             RemoteViews expandedView = new RemoteViews(getPackageName(), R.layout.notification_expanded);
             
-            String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
-            String millisStr = mCurrentMillisStr.isEmpty() ? ".000" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()));
-            
             collapsedView.setTextViewText(R.id.notification_time, timeStr);
             expandedView.setTextViewText(R.id.notification_time, timeStr + millisStr);
-            expandedView.setTextViewText(R.id.notification_source, getSourceDisplayName());
+            expandedView.setTextViewText(R.id.notification_source, sourceName);
             
             Intent intent = new Intent(this, MainActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -147,7 +160,6 @@ public class FloatTimeService extends Service {
                 .setCustomContentView(collapsedView)
                 .setCustomBigContentView(expandedView);
             
-            // Android 12+ 超级岛支持
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
             }
@@ -190,7 +202,7 @@ public class FloatTimeService extends Service {
             mCurrentTimeStr = timeStr;
             mCurrentMillisStr = String.format(Locale.getDefault(), "%03d", now % 1000);
             
-            // 每100ms更新一次通知
+            // 更新通知
             if (now % 100 < 50) {
                 updateNotification();
             }
@@ -216,6 +228,15 @@ public class FloatTimeService extends Service {
         }
         if (mNotificationManager != null) {
             try {
+                // Android 16+: 更新 Live Update
+                if (mLiveUpdateManager != null && mLiveUpdateManager.isSupported()) {
+                    mLiveUpdateManager.updateClock(
+                        this, mCurrentTimeStr,
+                        "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length())),
+                        getSourceDisplayName()
+                    );
+                }
+                // 通知也需要更新（前台服务要求）
                 mNotificationManager.notify(NOTIFICATION_ID, createNotification());
             } catch (Exception e) {
                 log("updateNotification error: " + e.getMessage());
