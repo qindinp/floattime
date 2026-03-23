@@ -1,6 +1,6 @@
 {
   "name": "taobao-time-float",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "悬浮窗时间展示 - 支持淘宝/美团时间自动校准，日夜间模式切换",
   "scripts": {
     "build": "vite build",
