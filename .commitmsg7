@@ -1,0 +1,4 @@
+fix: 回退到 Node.js 20 以兼容当前 GitHub Actions
+
+- 使用 Node.js 20（当前稳定版本）
+- 等待 actions 更新到 Node.js 24 后再升级
