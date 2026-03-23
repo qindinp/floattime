@@ -15,6 +15,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -282,6 +283,14 @@ public class FloatTimeService extends Service {
 
     private void createFloatingView() {
         try {
+            // ✅ 检查权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(this)) {
+                    Log.w(TAG, "No overlay permission, cannot create floating view");
+                    return;
+                }
+            }
+            
             mFloatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
             
             mTimeText = mFloatView.findViewById(R.id.timeText);
@@ -314,7 +323,14 @@ public class FloatTimeService extends Service {
             
             // ✅ 添加异常处理，防止悬浮窗崩溃
             if (mWindowManager != null && mFloatView != null) {
-                mWindowManager.addView(mFloatView, mFloatParams);
+                try {
+                    mWindowManager.addView(mFloatView, mFloatParams);
+                    Log.d(TAG, "Floating view created successfully");
+                } catch (WindowManager.BadTokenException e) {
+                    Log.e(TAG, "BadTokenException: " + e.getMessage());
+                } catch (IllegalArgumentException e) {
+                    Log.e(TAG, "IllegalArgumentException: " + e.getMessage());
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to create floating view: " + e.getMessage(), e);

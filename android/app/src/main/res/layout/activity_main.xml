@@ -108,6 +108,33 @@
             android:textColor="#666666"
             android:layout_marginBottom="20dp"/>
 
+        <!-- ✅ 悬浮窗开关 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp"
+            android:padding="12dp"
+            android:background="@drawable/switch_background">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="🪟 启用悬浮窗"
+                android:textSize="14sp"
+                android:textColor="#1A1A2E"
+                android:textStyle="bold"/>
+
+            <Switch
+                android:id="@+id/floatWindowSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"/>
+
+        </LinearLayout>
+
         <!-- 按钮 -->
         <LinearLayout
             android:layout_width="match_parent"

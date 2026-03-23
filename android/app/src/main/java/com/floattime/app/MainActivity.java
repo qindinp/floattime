@@ -20,6 +20,7 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.Switch;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -59,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private RadioButton themeAuto;
     private RadioButton themeLight;
     private RadioButton themeDark;
+    private Switch floatWindowSwitch;  // ✅ 悬浮窗开关
     
     private ActivityResultLauncher<Intent> overlayPermissionLauncher;
     private Handler mHandler;
@@ -108,12 +110,26 @@ public class MainActivity extends AppCompatActivity {
         themeAuto = findViewById(R.id.themeAuto);
         themeLight = findViewById(R.id.themeLight);
         themeDark = findViewById(R.id.themeDark);
+        floatWindowSwitch = findViewById(R.id.floatWindowSwitch);  // ✅ 初始化悬浮窗开关
 
         startBtn.setOnClickListener(v -> {
             // ✅ 检查悬浮窗权限并显示选项
             checkOverlayPermission();
         });
         stopBtn.setOnClickListener(v -> stopFloatingService());
+        
+        // ✅ 悬浮窗开关监听
+        if (floatWindowSwitch != null) {
+            floatWindowSwitch.setChecked(mPrefs.getBoolean("float_window_enabled", true));
+            floatWindowSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                mPrefs.edit().putBoolean("float_window_enabled", isChecked).apply();
+                if (FloatTimeService.isRunning()) {
+                    // 如果服务正在运行，需要重启以应用设置
+                    stopFloatingService();
+                    mHandler.postDelayed(() -> checkOverlayPermission(), 500);
+                }
+            });
+        }
         
         // 设置版本信息
         if (versionText != null) {
@@ -226,6 +242,11 @@ public class MainActivity extends AppCompatActivity {
         // ✅ 修复: 添加 null 检查
         if (startBtn != null) updateButtonStyle(startBtn, isNight, accentColor);
         if (stopBtn != null) updateButtonStyle(stopBtn, isNight, accentColor);
+        
+        // ✅ 更新 Switch 颜色
+        if (floatWindowSwitch != null) {
+            floatWindowSwitch.setTextColor(textColor);
+        }
     }
 
     private void updateButtonStyle(Button btn, boolean isNight, int accentColor) {
