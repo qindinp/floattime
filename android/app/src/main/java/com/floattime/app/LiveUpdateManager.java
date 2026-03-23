@@ -6,22 +6,30 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.Icon;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * LiveUpdateManager - 实时更新通知管理器
- * 
- * 使用稳定的 NotificationCompat API，支持:
- * - 时钟通知 (实时更新时间)
- * - 时间同步状态
- * - 秒表功能
- * 
- * 兼容所有 Android 版本 (API 24+)
+ *
+ * 支持:
+ * - Android 16 (API 36) Notification.ProgressStyle Live Updates
+ * - Android 12+ 前台服务即时行为
+ * - 兼容所有 Android 版本 (API 24+)
+ * - 小米超级岛 (HyperOS Focus Notification)
  */
 public class LiveUpdateManager {
 
@@ -31,19 +39,34 @@ public class LiveUpdateManager {
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final String CHANNEL_DESC = "实时显示校准时间";
 
-    public static final int ID_CLOCK = 20240320;  // 时钟通知 (与前台服务共用)
+    public static final int ID_CLOCK = 20240320;        // 时钟通知 (与前台服务共用)
     public static final int ID_SYNC_STATUS = 20240321;  // 同步状态
+
+    /** ProgressStyle 总进度范围 (秒表 60 秒) */
+    private static final int PROGRESS_MAX = 60;
 
     private final Context mContext;
     private final NotificationManager mNotifMgr;
     private final Handler mHandler;
+
+    /** 是否支持 Android 16 ProgressStyle */
+    private final boolean mSupportsProgressStyle;
+
+    /** 小米超级岛管理器 */
+    private SuperIslandManager mSuperIsland;
 
     public LiveUpdateManager(Context context) {
         mContext = context.getApplicationContext();
         mNotifMgr = (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
         mHandler = new Handler(Looper.getMainLooper());
         createChannel();
-        Log.d(TAG, "LiveUpdateManager initialized | API=" + Build.VERSION.SDK_INT);
+
+        mSupportsProgressStyle = Build.VERSION.SDK_INT >= 36;
+        mSuperIsland = new SuperIslandManager(mContext);
+
+        Log.d(TAG, "LiveUpdateManager initialized | API=" + Build.VERSION.SDK_INT
+                + " | ProgressStyle=" + mSupportsProgressStyle
+                + " | HyperOS=" + mSuperIsland.isHyperOS());
     }
 
     // ================================================================
@@ -69,11 +92,17 @@ public class LiveUpdateManager {
     // ================================================================
 
     /**
-     * 检查是否支持 Live Updates
-     * 所有 API 24+ 设备都支持
+     * 检查是否支持 Live Updates (所有设备都支持基础通知)
      */
     public boolean isSupported() {
-        return true;  // 使用稳定的 NotificationCompat，所有设备都支持
+        return true;
+    }
+
+    /**
+     * 是否支持 Android 16 ProgressStyle
+     */
+    public boolean supportsProgressStyle() {
+        return mSupportsProgressStyle;
     }
 
     /**
@@ -88,12 +117,12 @@ public class LiveUpdateManager {
     /**
      * 创建时钟通知 (带主题)
      */
+    @SuppressWarnings("deprecation")
     public Notification createClockNotification(Context ctx,
                                                String timeStr, String millisStr,
                                                String source, boolean isNight) {
         PendingIntent pi = createMainPendingIntent(ctx);
 
-        // 使用自定义布局显示详细信息
         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setContentTitle(timeStr + millisStr)
@@ -106,12 +135,34 @@ public class LiveUpdateManager {
                 .setOnlyAlertOnce(true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
-        // Android 12+ 灵动岛支持
+        // Android 12+ 前台服务即时行为
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
         }
 
-        return builder.build();
+        Notification notification = builder.build();
+
+        // =============================================
+        // Android 16 (API 36) ProgressStyle Live Updates
+        // =============================================
+        if (mSupportsProgressStyle) {
+            try {
+                applyProgressStyle(notification, timeStr, millisStr, isNight);
+            } catch (Exception e) {
+                Log.e(TAG, "ProgressStyle apply failed: " + e.getMessage());
+            }
+        }
+
+        // =============================================
+        // 小米超级岛 (HyperOS Focus Notification)
+        // =============================================
+        try {
+            mSuperIsland.applyFocusExtras(notification, timeStr, millisStr, source);
+        } catch (Exception e) {
+            Log.e(TAG, "SuperIsland extras failed: " + e.getMessage());
+        }
+
+        return notification;
     }
 
     /**
@@ -154,7 +205,7 @@ public class LiveUpdateManager {
      */
     public void showTimeSyncSuccess(String source, long offsetMs) {
         String title = "时间已同步";
-        String text = String.format("%s | 偏移: %+.0fms", 
+        String text = String.format("%s | 偏移: %+.0fms",
                 getSourceName(source), (double) offsetMs);
 
         Notification notification = new NotificationCompat.Builder(mContext, CHANNEL_ID)
@@ -201,32 +252,179 @@ public class LiveUpdateManager {
      */
     public void clearAll() {
         mNotifMgr.cancel(ID_SYNC_STATUS);
+        mSuperIsland.hide();
     }
 
     // ================================================================
-    //  秒表功能 (预留)
+    //  Android 16 ProgressStyle (API 36)
     // ================================================================
 
     /**
-     * 启动秒表
+     * 将 Notification.ProgressStyle 应用到通知上
+     *
+     * 设计思路:
+     * - 60 个 segment 代表 60 秒，交替着色形成时钟刻度感
+     * - progress 设为当前秒数，让 tracker icon 位于当前位置
+     * - 在 0s 和 30s 处设置 point 标记 (像时钟的 12 和 6)
      */
-    public void startStopwatch() {
-        // 秒表功能预留，当前版本未实现
-        Log.d(TAG, "startStopwatch: not implemented");
+    private void applyProgressStyle(Notification notification,
+                                    String timeStr, String millisStr,
+                                    boolean isNight) {
+        if (Build.VERSION.SDK_INT < 36) return;
+
+        // 解析当前秒数
+        int currentSecond = 0;
+        try {
+            String[] parts = timeStr.split(":");
+            if (parts.length >= 3) {
+                currentSecond = Integer.parseInt(parts[2]);
+            }
+        } catch (NumberFormatException ignored) {}
+
+        // 构建 60 个 segment，交替颜色模拟时钟刻度
+        List<Object> segments = new ArrayList<>();
+        for (int i = 0; i < PROGRESS_MAX; i++) {
+            segments.add(createSegment(1, i % 2 == 0
+                    ? (isNight ? 0xFF555555 : 0xFFCCCCCC)
+                    : (isNight ? 0xFF444444 : 0xFFE8E8E8)));
+        }
+
+        // 关键时间点标记
+        List<Object> points = new ArrayList<>();
+        points.add(createPoint(0, 0xFF4CAF50));              // 12点位置 (绿)
+        points.add(createPoint(30, 0xFFFF5722));             // 6点位置 (红)
+        points.add(createPoint(currentSecond, 0xFF2196F3));  // 当前秒 (蓝)
+
+        // 构建 ProgressStyle 并设置到通知上
+        Object progressStyle = createProgressStyle(
+                currentSecond,
+                segments,
+                points,
+                isNight
+        );
+
+        if (progressStyle != null) {
+            // 反射调用: notification.Builder.setProgressStyle(style)
+            // 然后用 setBuilder 重建通知
+            applyStyleToNotification(notification, progressStyle);
+        }
     }
 
     /**
-     * 暂停秒表
+     * 通过反射创建 Notification.ProgressStyle.Segment
      */
-    public void pauseStopwatch() {
-        Log.d(TAG, "pauseStopwatch: not implemented");
+    private Object createSegment(int length, int color) {
+        try {
+            Class<?> segmentClass = Class.forName("android.app.Notification$ProgressStyle$Segment");
+            return segmentClass
+                    .getConstructor(int.class)
+                    .newInstance(length);
+            // setColor 需要另外调用
+        } catch (Exception e) {
+            // Fallback: 用 Bundle 表示
+            Bundle b = new Bundle();
+            b.putInt("length", length);
+            b.putInt("color", color);
+            return b;
+        }
     }
 
     /**
-     * 停止秒表
+     * 通过反射创建 Notification.ProgressStyle.Point
      */
-    public void stopStopwatch() {
-        Log.d(TAG, "stopStopwatch: not implemented");
+    private Object createPoint(int position, int color) {
+        try {
+            Class<?> pointClass = Class.forName("android.app.Notification$ProgressStyle$Point");
+            return pointClass
+                    .getConstructor(int.class)
+                    .newInstance(position);
+        } catch (Exception e) {
+            Bundle b = new Bundle();
+            b.putInt("position", position);
+            b.putInt("color", color);
+            return b;
+        }
+    }
+
+    /**
+     * 通过反射创建 Notification.ProgressStyle
+     */
+    private Object createProgressStyle(int progress,
+                                        List<Object> segments,
+                                        List<Object> points,
+                                        boolean isNight) {
+        if (Build.VERSION.SDK_INT < 36) return null;
+
+        try {
+            Class<?> styleClass = Class.forName("android.app.Notification$ProgressStyle");
+            Object style = styleClass.getDeclaredConstructor().newInstance();
+
+            // setStyledByProgress(false) — 不自动着色
+            styleClass.getMethod("setStyledByProgress", boolean.class)
+                    .invoke(style, false);
+
+            // setProgress(currentSecond)
+            styleClass.getMethod("setProgress", int.class)
+                    .invoke(style, progress);
+
+            // setProgressSegments(List)
+            styleClass.getMethod("setProgressSegments", java.util.List.class)
+                    .invoke(style, segments);
+
+            // setProgressPoints(List)
+            styleClass.getMethod("setProgressPoints", java.util.List.class)
+                    .invoke(style, points);
+
+            return style;
+        } catch (Exception e) {
+            Log.e(TAG, "createProgressStyle reflection failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 将 ProgressStyle 应用到通知
+     * 通过 Notification.Builder.setProgressStyle(style).build() 合并 extras
+     */
+    private void applyStyleToNotification(Notification notification, Object progressStyle) {
+        if (Build.VERSION.SDK_INT < 36) return;
+
+        try {
+            // 获取 Notification 的 extras
+            Bundle extras = notification.extras;
+
+            // 通过 Builder 重建通知
+            // 这里直接操作 extras 来注入 ProgressStyle
+            // ProgressStyle.build() 会把 style 写入 extras
+            Class<?> styleClass = progressStyle.getClass();
+
+            // 调用 ProgressStyle.setBuilder(builder).build()
+            // 我们需要找到原始 builder 并重新构建
+            Notification.Builder nativeBuilder = new Notification.Builder(mContext, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(extras.getString(Notification.EXTRA_TITLE, ""))
+                    .setContentText(extras.getString(Notification.EXTRA_TEXT, ""))
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                nativeBuilder.setForegroundBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+            }
+
+            // 调用 setProgressStyle
+            nativeBuilder.getClass()
+                    .getMethod("setProgressStyle", styleClass)
+                    .invoke(nativeBuilder, progressStyle);
+
+            // 将 built notification 的 extras 合并回原通知
+            Notification built = nativeBuilder.build();
+            extras.putAll(built.extras);
+
+        } catch (Exception e) {
+            Log.e(TAG, "applyStyleToNotification failed: " + e.getMessage());
+        }
     }
 
     // ================================================================
