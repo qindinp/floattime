@@ -205,8 +205,8 @@ public class MainActivity extends AppCompatActivity {
             isNight = (mode == 2);
         }
         
-        // ✅ 参考 Android 官方设计标准
-        int bgColor = isNight ? 0xFF1F1F1F : 0xFFFFFFFF;      // 深灰背景
+        // ✅ 参考 Android 官方设计标准 - 主界面使用纯黑色
+        int bgColor = isNight ? 0xFF121212 : 0xFFFFFFFF;      // 纯黑背景
         int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;    // 白色文本
         int accentColor = isNight ? 0xFF03DAC6 : 0xFFBB86FC;  // 官方青色/紫色
         
