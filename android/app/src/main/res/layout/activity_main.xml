@@ -116,7 +116,7 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="20dp"
             android:padding="12dp"
-            android:background="@drawable/switch_background">
+            android:background="?android:attr/selectableItemBackground">
 
             <TextView
                 android:layout_width="0dp"
