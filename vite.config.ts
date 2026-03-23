@@ -13,9 +13,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          // vue 拆成独立 chunk，命中缓存
           vue: ['vue'],
         },
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/index-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
       },
     },
+    reportCompressedSize: true,
+    chunkSizeWarningLimit: 500,
+  },
+  server: {
+    port: 5173,
   },
 })

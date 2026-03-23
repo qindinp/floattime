@@ -127,20 +127,28 @@ function parseServerTime(value: any): number | null {
   return null
 }
 
-// ========== 修复 5: CORS 代理支持（所有 API 请求通过代理转发） ==========
-// 使用多个公共 CORS 代理，失败时自动切换
+// ========== CORS 代理支持（所有 API 请求通过代理转发，失败自动切换） ==========
 const CORS_PROXIES = [
-  'https://corsproxy.io/?<url>',
-  'https://api.allorigins.win/raw?url=<url>',
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ]
-let proxyIndex = 0
 
-function proxyUrl(url: string): string {
-  return CORS_PROXIES[proxyIndex].replace('<url>', encodeURIComponent(url))
-}
-
-function rotateProxy() {
-  proxyIndex = (proxyIndex + 1) % CORS_PROXIES.length
+async function fetchWithProxy(url: string, signal: AbortSignal): Promise<Response> {
+  for (let i = 0; i < CORS_PROXIES.length; i++) {
+    const proxyFn = CORS_PROXIES[i]
+    const proxyUrl = proxyFn(url)
+    try {
+      const resp = await fetch(proxyUrl, { method: 'GET', cache: 'no-cache', signal })
+      if (resp.ok || resp.status === 200) return resp
+      // 代理返回非 200，尝试下一个
+      console.warn(`[proxy] #${i} returned ${resp.status} for ${url}`)
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e
+      console.warn(`[proxy] #${i} failed for ${url}:`, e)
+    }
+  }
+  throw new Error('All CORS proxies failed')
 }
 
 // ========== 原有功能 ==========
@@ -181,77 +189,64 @@ async function syncTime(source: TimeSource): Promise<number> {
   }
 
   const candidates = endpoints[source] || []
-  const triedProxies: Set<number> = new Set()
 
   for (const ep of candidates) {
-    // 每个端点尝试所有 CORS 代理
-    for (let pi = 0; pi < CORS_PROXIES.length; pi++) {
-      if (triedProxies.has(pi)) continue
-      triedProxies.add(pi)
-      proxyIndex = pi
+    // 每个端点尝试所有 CORS 代理，直到成功
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
 
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 8000)
+        const localBefore = Date.now()
+        const resp = await fetchWithProxy(ep.url, controller.signal)
+        const localAfter = Date.now()
+        const localMid = (localBefore + localAfter) / 2
 
-        try {
-          const localBefore = Date.now()
-          const resp = await fetch(proxyUrl(ep.url), {
-            method: 'GET',
-            cache: 'no-cache',
-            signal: controller.signal,
-          })
-          const localAfter = Date.now()
-          const localMid = (localBefore + localAfter) / 2
+        if (!resp.ok) { clearTimeout(timeoutId); continue }
 
-          if (!resp.ok) { clearTimeout(timeoutId); continue }
+        if (ep.type === 'header') {
+          const dateHeader = resp.headers.get('Date')
+          if (dateHeader) {
+            const serverTime = new Date(dateHeader).getTime()
+            const offset = serverTime - localMid
+            console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
+            clearTimeout(timeoutId)
+            return offset
+          }
+        } else {
+          try {
+            const json = await resp.clone().json()
+            let serverTime: number | null = null
 
-          if (ep.type === 'header') {
-            const dateHeader = resp.headers.get('Date')
-            if (dateHeader) {
-              const serverTime = new Date(dateHeader).getTime()
+            if (ep.field) {
+              const keys = ep.field.split('.')
+              let v: any = json
+              for (const k of keys) { v = v?.[k]; if (v === undefined) break }
+              serverTime = parseServerTime(v)
+            }
+            if (serverTime === null) {
+              if (json?.data?.t) serverTime = parseServerTime(json.data.t)
+              else if (json?.t) serverTime = parseServerTime(json.t)
+              else if (json?.timestamp) serverTime = parseServerTime(json.timestamp)
+              else if (typeof json === 'number') serverTime = parseServerTime(json)
+            }
+
+            if (serverTime !== null && !isNaN(serverTime)) {
               const offset = serverTime - localMid
-              console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
+              console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
               clearTimeout(timeoutId)
               return offset
             }
-          } else {
-            try {
-              const json = await resp.clone().json()
-              let serverTime: number | null = null
-
-              if (ep.field) {
-                const keys = ep.field.split('.')
-                let v: any = json
-                for (const k of keys) { v = v?.[k]; if (v === undefined) break }
-                serverTime = parseServerTime(v)
-              }
-              if (serverTime === null) {
-                if (json?.data?.t) serverTime = parseServerTime(json.data.t)
-                else if (json?.t) serverTime = parseServerTime(json.t)
-                else if (json?.timestamp) serverTime = parseServerTime(json.timestamp)
-                else if (typeof json === 'number') serverTime = parseServerTime(json)
-              }
-
-              if (serverTime !== null && !isNaN(serverTime)) {
-                const offset = serverTime - localMid
-                console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
-                clearTimeout(timeoutId)
-                return offset
-              }
-            } catch { /* not JSON */ }
-          }
-        } catch (e) {
-          if (e instanceof Error && e.name === 'AbortError') {
-            console.warn(`[${source}] ${ep.url} timeout`)
-          } else {
-            console.warn(`[${source}] ${ep.url} failed:`, e)
-          }
-        } finally {
-          clearTimeout(timeoutId)
+          } catch { /* not JSON, try next endpoint */ }
         }
-      } catch (e) {
-        console.warn(`[${source}] proxy[${pi}] ${ep.url} failed:`, e)
+      } finally {
+        clearTimeout(timeoutId)
+      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') {
+        console.warn(`[${source}] ${ep.url} timeout, trying next...`)
+      } else {
+        console.warn(`[${source}] ${ep.url} failed:`, e)
       }
     }
   }
