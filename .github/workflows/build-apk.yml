@@ -46,6 +46,14 @@ jobs:
       - name: Build with Vite
         run: npx vite build
 
+      - name: Commit dist files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add dist/
+          git diff --staged --quiet || git commit -m "chore: update dist files [skip ci]"
+          git push
+
       - name: Sync Capacitor
         run: npx cap sync android
 
