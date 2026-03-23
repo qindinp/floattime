@@ -365,20 +365,55 @@ public class FloatTimeService extends Service {
             
             setupTouchListener();
             
-            // ✅ 添加异常处理，防止悬浮窗崩溃
+            // ✅ 尝试添加悬浮窗
             if (mWindowManager != null && mFloatView != null) {
                 try {
                     mWindowManager.addView(mFloatView, mFloatParams);
                     Log.d(TAG, "Floating view created successfully");
                 } catch (WindowManager.BadTokenException e) {
-                    Log.e(TAG, "BadTokenException: " + e.getMessage());
+                    // ✅ BadTokenException 不再静默失败，而是延迟重试
+                    Log.w(TAG, "BadTokenException, will retry: " + e.getMessage());
+                    mHandler.postDelayed(() -> {
+                        Log.d(TAG, "Retrying to add floating view...");
+                        tryRemoveFloatingView(); // 先移除可能存在的旧视图
+                        createFloatingView(); // 重新创建
+                    }, 1000);
                 } catch (IllegalArgumentException e) {
                     Log.e(TAG, "IllegalArgumentException: " + e.getMessage());
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to add floating view: " + e.getMessage());
+                    // ✅ 延迟重试
+                    mHandler.postDelayed(this::retryCreateFloatingView, 2000);
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to create floating view: " + e.getMessage(), e);
-            // 悬浮窗创建失败，继续运行但不显示悬浮窗
+            // ✅ 延迟重试
+            mHandler.postDelayed(this::retryCreateFloatingView, 2000);
+        }
+    }
+    
+    // ✅ 重试创建悬浮窗
+    private void retryCreateFloatingView() {
+        if (!mPrefs.getBoolean("float_window_enabled", true)) {
+            return; // 用户禁用了悬浮窗
+        }
+        
+        Log.d(TAG, "Retrying to create floating view...");
+        tryRemoveFloatingView();
+        createFloatingView();
+    }
+    
+    // ✅ 安全移除悬浮窗
+    private void tryRemoveFloatingView() {
+        if (mFloatView != null && mWindowManager != null) {
+            try {
+                if (mFloatView.getParent() != null) {
+                    mWindowManager.removeView(mFloatView);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to remove floating view: " + e.getMessage());
+            }
         }
     }
 
