@@ -119,10 +119,21 @@ public class LiveUpdateManager {
     public void showTimeSyncing(String source) {
         String sourceName = getSourceDisplayName(source);
         
+        // ✅ 创建 ContentIntent - 小米超级岛识别关键!
+        Intent intent = new Intent(mContext, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            mContext,
+            NOTIFICATION_ID_TIME_SYNC,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        
         NotificationCompat.Builder builder = new NotificationCompat.Builder(mContext, CHANNEL_ID_LIVE_UPDATE)
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setContentTitle("时间同步中")
             .setContentText("正在从 " + sourceName + " 获取时间...")
+            .setContentIntent(pendingIntent)  // ✅ 必须有 ContentIntent
             .setOngoing(false)  // ✅ 改为 false - 小米超级岛识别关键!
             .setAutoCancel(true)  // ✅ 允许用户关闭
             .setPriority(NotificationCompat.PRIORITY_MAX)  // ✅ 最高优先级
@@ -345,9 +356,16 @@ public class LiveUpdateManager {
     }
     
     private void notify(int id, Notification notification) {
-        // ✅ 修复: 添加 null 检查
+        // ✅ 修复: 添加 null 检查和日志
         if (mNotificationManager != null && notification != null) {
-            mNotificationManager.notify(id, notification);
+            try {
+                mNotificationManager.notify(id, notification);
+                android.util.Log.d(TAG, "✅ Notification sent: id=" + id);
+            } catch (SecurityException e) {
+                android.util.Log.e(TAG, "❌ SecurityException: " + e.getMessage());
+            } catch (Exception e) {
+                android.util.Log.e(TAG, "❌ Failed to send notification: " + e.getMessage());
+            }
         }
     }
     
