@@ -1,0 +1,4 @@
+fix: 修复 GitHub Actions 配置
+
+- 使用 Node.js 20（当前稳定版本）
+- 添加 --stacktrace 以便调试构建错误
