@@ -119,7 +119,9 @@ public class FloatTimeService extends Service {
             mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
             mNotificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             
-            if (mWindowManager != null) {
+            // ✅ 检查是否启用悬浮窗
+            boolean enableFloatingWindow = mPrefs.getBoolean("float_window_enabled", true);
+            if (mWindowManager != null && enableFloatingWindow) {
                 createFloatingView();
             }
             
@@ -279,36 +281,45 @@ public class FloatTimeService extends Service {
     }
 
     private void createFloatingView() {
-        mFloatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
-        
-        mTimeText = mFloatView.findViewById(R.id.timeText);
-        mMillisText = mFloatView.findViewById(R.id.millisText);
-        mDateText = mFloatView.findViewById(R.id.dateText);
-        mSourceText = mFloatView.findViewById(R.id.sourceText);
-        mSyncDot = mFloatView.findViewById(R.id.syncDot);
-        
-        updateFloatingStyle();
-        
-        int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
-            : WindowManager.LayoutParams.TYPE_PHONE;
-        
-        mFloatParams = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE 
-                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        );
-        
-        mFloatParams.gravity = Gravity.TOP | Gravity.START;
-        mFloatParams.x = mPrefs.getInt(KEY_FLOAT_X, 50);
-        mFloatParams.y = mPrefs.getInt(KEY_FLOAT_Y, 200);
-        
-        setupTouchListener();
-        mWindowManager.addView(mFloatView, mFloatParams);
+        try {
+            mFloatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
+            
+            mTimeText = mFloatView.findViewById(R.id.timeText);
+            mMillisText = mFloatView.findViewById(R.id.millisText);
+            mDateText = mFloatView.findViewById(R.id.dateText);
+            mSourceText = mFloatView.findViewById(R.id.sourceText);
+            mSyncDot = mFloatView.findViewById(R.id.syncDot);
+            
+            updateFloatingStyle();
+            
+            int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
+                : WindowManager.LayoutParams.TYPE_PHONE;
+            
+            mFloatParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE 
+                    | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            );
+            
+            mFloatParams.gravity = Gravity.TOP | Gravity.START;
+            mFloatParams.x = mPrefs.getInt(KEY_FLOAT_X, 50);
+            mFloatParams.y = mPrefs.getInt(KEY_FLOAT_Y, 200);
+            
+            setupTouchListener();
+            
+            // ✅ 添加异常处理，防止悬浮窗崩溃
+            if (mWindowManager != null && mFloatView != null) {
+                mWindowManager.addView(mFloatView, mFloatParams);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to create floating view: " + e.getMessage(), e);
+            // 悬浮窗创建失败，继续运行但不显示悬浮窗
+        }
     }
 
     private void updateFloatingStyle() {

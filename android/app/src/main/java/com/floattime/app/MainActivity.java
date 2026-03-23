@@ -109,7 +109,10 @@ public class MainActivity extends AppCompatActivity {
         themeLight = findViewById(R.id.themeLight);
         themeDark = findViewById(R.id.themeDark);
 
-        startBtn.setOnClickListener(v -> checkOverlayPermission());
+        startBtn.setOnClickListener(v -> {
+            // ✅ 添加悬浮窗开关选项
+            showFloatingWindowOptions();
+        });
         stopBtn.setOnClickListener(v -> stopFloatingService());
         
         // 设置版本信息
@@ -418,20 +421,26 @@ public class MainActivity extends AppCompatActivity {
 
     private void showOverlayPermissionDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("需要悬浮窗权限")
-            .setMessage("悬浮时间需要在其他应用上层显示，请授予悬浮窗权限。")
-            .setPositiveButton("去设置", (dialog, which) -> {
+            .setTitle("悬浮窗选项")
+            .setMessage("选择是否启用悬浮窗显示")
+            .setPositiveButton("启用悬浮窗", (dialog, which) -> {
                 try {
                     Intent intent = new Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName())
                     );
+                    mPrefs.edit().putBoolean("float_window_enabled", true).apply();
                     overlayPermissionLauncher.launch(intent);
                 } catch (Exception e) {
                     openAppSettings();
                 }
             })
-            .setNegativeButton("取消", null)
+            .setNegativeButton("仅后台运行", (dialog, which) -> {
+                // ✅ 不启用悬浮窗，仅后台运行
+                mPrefs.edit().putBoolean("float_window_enabled", false).apply();
+                checkNotificationPermissionAndStart();
+            })
+            .setNeutralButton("取消", null)
             .setCancelable(false)
             .show();
     }
