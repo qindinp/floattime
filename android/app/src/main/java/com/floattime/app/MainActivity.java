@@ -205,10 +205,10 @@ public class MainActivity extends AppCompatActivity {
             isNight = (mode == 2);
         }
         
-        // ✅ 改进: 使用更柔和的暗夜模式颜色
+        // ✅ 参考 Android 官方设计标准
         int bgColor = isNight ? 0xFF1F1F1F : 0xFFFFFFFF;      // 深灰背景
         int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;    // 白色文本
-        int accentColor = isNight ? 0xFFFF6B35 : 0xFFFF5000;  // 橙色强调
+        int accentColor = isNight ? 0xFF03DAC6 : 0xFFBB86FC;  // 官方青色/紫色
         
         View root = findViewById(android.R.id.content);
         if (root != null) {
@@ -228,7 +228,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateButtonStyle(Button btn, boolean isNight, int accentColor) {
         if (btn == null) return;
         
-        // ✅ 改进: 使用强调色
+        // ✅ 参考官方设计
         int bgColor = isNight ? 0xFF2A2A2A : 0xFFE0E0E0;
         int textColor = isNight ? accentColor : 0xFF1A1A2E;
         
@@ -236,7 +236,7 @@ public class MainActivity extends AppCompatActivity {
         drawable.setShape(GradientDrawable.RECTANGLE);
         drawable.setCornerRadius(dpToPx(12));
         drawable.setColor(bgColor);
-        drawable.setStroke(dpToPx(2), textColor);  // ✅ 添加边框
+        drawable.setStroke(dpToPx(2), textColor);
         
         btn.setBackground(drawable);
         btn.setTextColor(textColor);
