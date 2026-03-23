@@ -15,6 +15,11 @@ import androidx.core.app.NotificationCompat;
 /**
  * Android 16 Live Updates 管理器
  * 支持时间同步状态、秒表进度等实时通知展示
+ * 
+ * Android 16 Live Updates 特性:
+ * - 实时更新通知内容，无需重新发送
+ * - 支持动画进度条
+ * - 支持实时计时器显示
  */
 public class LiveUpdateManager {
 
@@ -61,6 +66,11 @@ public class LiveUpdateManager {
             channel.setShowBadge(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             
+            // Android 16+ 启用 Live Updates
+            if (Build.VERSION.SDK_INT >= 36) {
+                channel.setAllowBubbles(true);
+            }
+            
             if (mNotificationManager != null) {
                 mNotificationManager.createNotificationChannel(channel);
             }
@@ -83,14 +93,11 @@ public class LiveUpdateManager {
             return false;
         }
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-            // Android 16+ 需要检查 POST_PROMOTED_NOTIFICATIONS 权限
-            return mNotificationManager != null && 
-                   mNotificationManager.areNotificationsEnabled();
+        if (mNotificationManager != null) {
+            return mNotificationManager.areNotificationsEnabled();
         }
         
-        return mNotificationManager != null && 
-               mNotificationManager.areNotificationsEnabled();
+        return false;
     }
     
     // ==================== 时间同步 Live Update ====================
@@ -109,6 +116,14 @@ public class LiveUpdateManager {
             .setProgress(0, 0, true)  // 不确定进度
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+        
+        // Android 16+ Live Updates 配置
+        if (isLiveUpdateSupported()) {
+            // 启用实时更新
+            builder.setShowWhen(true);
+            builder.setUsesChronometer(false);
+        }
+        
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
     }
     
@@ -128,6 +143,12 @@ public class LiveUpdateManager {
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true);
+        
+        // Android 16+ Live Updates 配置
+        if (isLiveUpdateSupported()) {
+            builder.setShowWhen(true);
+        }
+        
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
         
         // 3秒后自动清除
@@ -151,7 +172,9 @@ public class LiveUpdateManager {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true);
         
+        // Android 16+ Live Updates 配置
         if (isLiveUpdateSupported()) {
+            builder.setShowWhen(true);
         }
         
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
@@ -208,7 +231,7 @@ public class LiveUpdateManager {
     }
     
     /**
-     * 更新秒表通知
+     * 更新秒表通知 - 支持 Android 16 Live Updates
      */
     private void updateStopwatchNotification(long elapsedMs, PendingIntent pauseIntent, PendingIntent stopIntent) {
         long minutes = elapsedMs / 60000;
@@ -229,14 +252,16 @@ public class LiveUpdateManager {
             .addAction(android.R.drawable.ic_media_pause, "暂停", pauseIntent)
             .addAction(android.R.drawable.ic_delete, "停止", stopIntent);
         
-        // Android 16+ Live Updates
+        // Android 16+ Live Updates 配置
         if (isLiveUpdateSupported()) {
-            // 添加进度样式（Android 16+）
-            if (Build.VERSION.SDK_INT >= 36) {
-                // 使用原生进度样式
-                builder.setStyle(new NotificationCompat.BigTextStyle()
-                    .bigText("已运行: " + timeText));
-            }
+            // 启用实时更新和计时器
+            builder.setShowWhen(true);
+            builder.setUsesChronometer(true);
+            builder.setChronometerCountDown(false);
+            
+            // 使用 BigTextStyle 显示更多信息
+            builder.setStyle(new NotificationCompat.BigTextStyle()
+                .bigText("已运行: " + timeText + "\n进度: " + progress + "%"));
         }
         
         notify(NOTIFICATION_ID_STOPWATCH, builder.build());
@@ -258,6 +283,11 @@ public class LiveUpdateManager {
             .setContentText("点击继续")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH);
+        
+        // Android 16+ Live Updates 配置
+        if (isLiveUpdateSupported()) {
+            builder.setShowWhen(true);
+        }
         
         notify(NOTIFICATION_ID_STOPWATCH, builder.build());
     }
