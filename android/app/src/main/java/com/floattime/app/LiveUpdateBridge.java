@@ -18,8 +18,8 @@ public class LiveUpdateBridge {
      * 检查是否支持 Live Updates
      */
     @JavascriptInterface
-    public boolean isLiveUpdateSupported() {
-        return mActivity.isLiveUpdateSupported();
+    public boolean isSupported() {
+        return mActivity.isSupported();
     }
     
     /**
