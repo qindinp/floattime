@@ -25,6 +25,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -35,12 +36,18 @@ import java.util.TimeZone;
 
 /**
  * 主界面 - 负责权限申请、服务启动、主题设置
+ * 
+ * 改进:
+ * - 启用 AppCompatDelegate 暗夜模式支持
+ * - 首次启动主动请求权限
+ * - 集成 Live Updates 功能
  */
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     private static final String PREFS_NAME = "FloatTimePrefs";
     private static final String KEY_THEME_MODE = "theme_mode";
+    private static final String KEY_PERMISSIONS_REQUESTED = "permissions_requested";
 
     private Button startBtn;
     private Button stopBtn;
@@ -65,7 +72,16 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
+        // ✅ 第一步: 启用暗夜模式支持 - 跟随系统设置
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        
         mPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        
+        // ✅ 第二步: 首次启动时主动请求权限
+        if (!mPrefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) {
+            requestInitialPermissions();
+            mPrefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply();
+        }
         
         // 初始化 Live Update 管理器
         mLiveUpdateManager = new LiveUpdateManager(this);
@@ -117,7 +133,31 @@ public class MainActivity extends AppCompatActivity {
         
         updateStatus();
         
-        Log.d(TAG, "MainActivity onCreate");
+        Log.d(TAG, "MainActivity onCreate - Dark mode enabled, permissions checked");
+    }
+
+    // ✅ 新增: 首次启动权限请求
+    private void requestInitialPermissions() {
+        Log.d(TAG, "Requesting initial permissions");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ 请求通知权限
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "Requesting POST_NOTIFICATIONS permission");
+                ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    1001);
+            }
+        }
+        
+        // 检查悬浮窗权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                Log.d(TAG, "Requesting overlay permission");
+                showOverlayPermissionDialog();
+            }
+        }
     }
 
     private void setupThemeSelector() {
@@ -169,7 +209,9 @@ public class MainActivity extends AppCompatActivity {
         int cardColor = isNight ? 0xFF2A2A3E : 0xFFF5F5F5;
         
         View root = findViewById(android.R.id.content);
-        root.setBackgroundColor(bgColor);
+        if (root != null) {
+            root.setBackgroundColor(bgColor);
+        }
         
         if (statusText != null) statusText.setTextColor(textColor);
         if (timezoneText != null) timezoneText.setTextColor(textColor);
@@ -409,7 +451,7 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, 
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 1002) {
+        if (requestCode == 1002 || requestCode == 1001) {
             startFloatingService();
         }
     }
