@@ -252,14 +252,14 @@ public class FloatTimeService extends Service {
         
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("悬浮时间 v1.2.0")
-            .setContentText(timeStr)
+            // ✅ 移除 setContentTitle 和 setContentText，避免与自定义视图冲突
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
             .setShowWhen(false)
             .setOnlyAlertOnce(true)
+            // ✅ 只使用自定义视图
             .setCustomContentView(collapsedView)
             .setCustomBigContentView(expandedView);
         
@@ -291,7 +291,14 @@ public class FloatTimeService extends Service {
                 }
             }
             
-            mFloatView = LayoutInflater.from(this).inflate(R.layout.float_ball, null);
+            // ✅ 使用 application context 避免 BadTokenException
+            mFloatView = LayoutInflater.from(getApplicationContext()).inflate(R.layout.float_ball, null);
+            
+            // ✅ 验证悬浮窗视图是否创建成功
+            if (mFloatView == null) {
+                Log.e(TAG, "Failed to inflate float_ball layout");
+                return;
+            }
             
             mTimeText = mFloatView.findViewById(R.id.timeText);
             mMillisText = mFloatView.findViewById(R.id.millisText);
