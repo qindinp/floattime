@@ -3,6 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <!-- 预防主题闪烁：优先读取 localStorage 并立即应用，避免页面加载后再切换 -->
+  <script>
+    (function() {
+      var saved = localStorage.getItem('floattime-theme') || 'auto';
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var isDark = saved === 'dark' || (saved === 'auto' && prefersDark);
+      if (isDark) document.documentElement.classList.add('dark-theme');
+      else document.documentElement.classList.add('light-theme');
+    })();
+  </script>
   <title>悬浮时间</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

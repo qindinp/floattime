@@ -15,10 +15,58 @@ const isSettingsOpen = ref(false)
 const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartY = ref(0)
-const floatX = ref(window.innerWidth - 120)
-const floatY = ref(120)
-const panelX = ref(Math.max(10, window.innerWidth / 2 - 150))
-const panelY = ref(Math.max(10, window.innerHeight / 2 - 250))
+
+// ========== 修复: 悬浮球位置持久化 ==========
+const STORAGE_KEY_BALL = 'floattime-ball'
+function loadBallPosition() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BALL)
+    if (raw) {
+      const p = JSON.parse(raw)
+      if (typeof p.x === 'number' && typeof p.y === 'number') {
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 110, p.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 60, p.y)),
+        }
+      }
+    }
+  } catch {}
+  return { x: window.innerWidth - 120, y: 120 }
+}
+function saveBallPosition(x: number, y: number) {
+  localStorage.setItem(STORAGE_KEY_BALL, JSON.stringify({ x, y }))
+}
+
+const floatX = ref(loadBallPosition().x)
+const floatY = ref(loadBallPosition().y)
+
+// ========== 修复: 面板位置持久化 + 边界校正 ==========
+const STORAGE_KEY_PANEL = 'floattime-panel'
+function loadPanelPosition() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PANEL)
+    if (raw) {
+      const p = JSON.parse(raw)
+      if (typeof p.x === 'number' && typeof p.y === 'number') {
+        return {
+          x: Math.max(0, Math.min(window.innerWidth - 310, p.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 500, p.y)),
+        }
+      }
+    }
+  } catch {}
+  return {
+    x: Math.max(10, window.innerWidth / 2 - 150),
+    y: Math.max(10, window.innerHeight / 2 - 250),
+  }
+}
+function savePanelPosition(x: number, y: number) {
+  localStorage.setItem(STORAGE_KEY_PANEL, JSON.stringify({ x, y }))
+}
+
+const panelX = ref(loadPanelPosition().x)
+const panelY = ref(loadPanelPosition().y)
+
 const isPanelDragging = ref(false)
 const panelDragStartX = ref(0)
 const panelDragStartY = ref(0)
@@ -38,23 +86,16 @@ const themeMode = ref<ThemeMode>('auto')
 const systemIsDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
 
 const isDarkMode = computed(() => {
-  if (themeMode.value === 'auto') {
-    return systemIsDark.value
-  }
+  if (themeMode.value === 'auto') return systemIsDark.value
   return themeMode.value === 'dark'
 })
 
-watch(isDarkMode, () => {
-  applyTheme()
-}, { immediate: true })
+watch(isDarkMode, () => { applyTheme() }, { immediate: true })
 
 function setupThemeListener() {
   darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   systemIsDark.value = darkModeQuery.matches
-  // ✅ 修复 1: 保存 listener 引用以便正确移除
-  darkModeListener = (e: MediaQueryListEvent) => {
-    systemIsDark.value = e.matches
-  }
+  darkModeListener = (e: MediaQueryListEvent) => { systemIsDark.value = e.matches }
   darkModeQuery.addEventListener('change', darkModeListener)
 }
 
@@ -77,28 +118,29 @@ function setThemeMode(mode: ThemeMode) {
 // ========== 修复 2: 改进 JSON 解析逻辑 ==========
 function parseServerTime(value: any): number | null {
   let ts: number | null = null
-  
-  if (typeof value === 'number') {
-    ts = value
-  } else if (typeof value === 'string') {
-    ts = parseInt(value, 10)
-  } else {
-    return null
-  }
-  
+  if (typeof value === 'number') ts = value
+  else if (typeof value === 'string') ts = parseInt(value, 10)
+  else return null
   if (isNaN(ts) || ts === 0) return null
-  
-  // 检查是否为秒级时间戳（1970-2100 年范围）
-  if (ts > 1000000000 && ts < 4102444800) {
-    return ts * 1000
-  }
-  
-  // 检查是否为毫秒级时间戳
-  if (ts > 1000000000000 && ts < 4102444800000) {
-    return ts
-  }
-  
+  if (ts > 1000000000 && ts < 4102444800) return ts * 1000
+  if (ts > 1000000000000 && ts < 4102444800000) return ts
   return null
+}
+
+// ========== 修复 5: CORS 代理支持（所有 API 请求通过代理转发） ==========
+// 使用多个公共 CORS 代理，失败时自动切换
+const CORS_PROXIES = [
+  'https://corsproxy.io/?<url>',
+  'https://api.allorigins.win/raw?url=<url>',
+]
+let proxyIndex = 0
+
+function proxyUrl(url: string): string {
+  return CORS_PROXIES[proxyIndex].replace('<url>', encodeURIComponent(url))
+}
+
+function rotateProxy() {
+  proxyIndex = (proxyIndex + 1) % CORS_PROXIES.length
 }
 
 // ========== 原有功能 ==========
@@ -121,90 +163,96 @@ const themeBg = computed(() => {
   return isDarkMode.value ? 'rgba(74,144,226,0.92)' : 'rgba(74,144,226,0.95)'
 })
 
-// ========== 修复 3: 添加超时控制 | 修复 5: 替换 API 端点 | 修复 6: 添加 CORS 代理支持 ==========
+// ========== 修复 3: 超时控制 | 修复 5: CORS 代理 ==========
 async function syncTime(source: TimeSource): Promise<number> {
   if (source === 'local') return 0
 
-  // ✅ 修复 5: 更新 API 端点
-  const endpoints: Record<string, { url: string; type: 'header' | 'json' }[]> = {
+  const endpoints: Record<string, { url: string; type: 'header' | 'json'; field?: string }[]> = {
     taobao: [
-      // 主端点
+      { url: 'https://api.m.taobao.com/gw/mtop.common.getTimestamp', type: 'json', field: 'data.t' },
       { url: 'https://time.taobao.com/api/servertime', type: 'json' },
-      { url: 'https://api.m.taobao.com/gw/mtop.common.getTimestamp', type: 'json' },
-      // 备用端点
       { url: 'https://api.taobao.com/router/rest', type: 'header' },
     ],
     meituan: [
-      // 主端点
       { url: 'https://api.meituan.com/nationalTimestamp', type: 'json' },
       { url: 'https://api-ssl.meituan.com/nationalTimestamp', type: 'json' },
-      // 备用端点
       { url: 'https://www.meituan.com/', type: 'header' },
     ],
   }
 
   const candidates = endpoints[source] || []
+  const triedProxies: Set<number> = new Set()
 
   for (const ep of candidates) {
-    try {
-      // ✅ 修复 3: 添加超时控制
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000)
+    // 每个端点尝试所有 CORS 代理
+    for (let pi = 0; pi < CORS_PROXIES.length; pi++) {
+      if (triedProxies.has(pi)) continue
+      triedProxies.add(pi)
+      proxyIndex = pi
 
       try {
-        const localBefore = Date.now()
-        const resp = await fetch(ep.url, {
-          method: 'GET',
-          cache: 'no-cache',
-          signal: controller.signal,
-        })
-        const localAfter = Date.now()
-        const localMid = (localBefore + localAfter) / 2
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 8000)
 
-        if (!resp.ok) {
-          clearTimeout(timeoutId)
-          continue
-        }
+        try {
+          const localBefore = Date.now()
+          const resp = await fetch(proxyUrl(ep.url), {
+            method: 'GET',
+            cache: 'no-cache',
+            signal: controller.signal,
+          })
+          const localAfter = Date.now()
+          const localMid = (localBefore + localAfter) / 2
 
-        if (ep.type === 'header') {
-          const dateHeader = resp.headers.get('Date')
-          if (dateHeader) {
-            const serverTime = new Date(dateHeader).getTime()
-            const offset = serverTime - localMid
-            console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
-            clearTimeout(timeoutId)
-            return offset
-          }
-        } else {
-          try {
-            const json = await resp.clone().json()
-            let serverTime: number | null = null
-            
-            // ✅ 修复 2: 使用改进的 JSON 解析
-            if (json?.data?.t) serverTime = parseServerTime(json.data.t)
-            else if (json?.t) serverTime = parseServerTime(json.t)
-            else if (json?.timestamp) serverTime = parseServerTime(json.timestamp)
-            else if (typeof json === 'number') serverTime = parseServerTime(json)
+          if (!resp.ok) { clearTimeout(timeoutId); continue }
 
-            if (serverTime !== null && !isNaN(serverTime)) {
+          if (ep.type === 'header') {
+            const dateHeader = resp.headers.get('Date')
+            if (dateHeader) {
+              const serverTime = new Date(dateHeader).getTime()
               const offset = serverTime - localMid
-              console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
+              console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
               clearTimeout(timeoutId)
               return offset
             }
-          } catch { /* not JSON */ }
+          } else {
+            try {
+              const json = await resp.clone().json()
+              let serverTime: number | null = null
+
+              if (ep.field) {
+                const keys = ep.field.split('.')
+                let v: any = json
+                for (const k of keys) { v = v?.[k]; if (v === undefined) break }
+                serverTime = parseServerTime(v)
+              }
+              if (serverTime === null) {
+                if (json?.data?.t) serverTime = parseServerTime(json.data.t)
+                else if (json?.t) serverTime = parseServerTime(json.t)
+                else if (json?.timestamp) serverTime = parseServerTime(json.timestamp)
+                else if (typeof json === 'number') serverTime = parseServerTime(json)
+              }
+
+              if (serverTime !== null && !isNaN(serverTime)) {
+                const offset = serverTime - localMid
+                console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
+                clearTimeout(timeoutId)
+                return offset
+              }
+            } catch { /* not JSON */ }
+          }
+        } catch (e) {
+          if (e instanceof Error && e.name === 'AbortError') {
+            console.warn(`[${source}] ${ep.url} timeout`)
+          } else {
+            console.warn(`[${source}] ${ep.url} failed:`, e)
+          }
+        } finally {
+          clearTimeout(timeoutId)
         }
       } catch (e) {
-        if (e instanceof Error && e.name === 'AbortError') {
-          console.warn(`[${source}] ${ep.url} timeout`)
-        } else {
-          console.warn(`[${source}] ${ep.url} failed:`, e)
-        }
-      } finally {
-        clearTimeout(timeoutId)
+        console.warn(`[${source}] proxy[${pi}] ${ep.url} failed:`, e)
       }
-    } catch (e) {
-      console.warn(`[${source}] ${ep.url} failed:`, e)
     }
   }
 
@@ -228,23 +276,11 @@ async function doSync() {
     offsetMs.value = await syncTime(timeSource.value)
     syncStatus.value = 'success'
     lastSyncTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    
-    // ✅ 修复 4: 3 秒后自动重置状态
-    setTimeout(() => {
-      if (syncStatus.value === 'success') {
-        syncStatus.value = 'idle'
-      }
-    }, 3000)
+    setTimeout(() => { if (syncStatus.value === 'success') syncStatus.value = 'idle' }, 3000)
   } catch {
     syncStatus.value = 'error'
     offsetMs.value = 0
-    
-    // ✅ 修复 4: 5 秒后自动重置状态
-    setTimeout(() => {
-      if (syncStatus.value === 'error') {
-        syncStatus.value = 'idle'
-      }
-    }, 5000)
+    setTimeout(() => { if (syncStatus.value === 'error') syncStatus.value = 'idle' }, 5000)
   }
   updateDisplay()
 }
@@ -274,7 +310,11 @@ function onFloatTouchMove(e: TouchEvent) {
   floatX.value = Math.max(0, Math.min(window.innerWidth - 110, e.touches[0].clientX - dragStartX.value))
   floatY.value = Math.max(0, Math.min(window.innerHeight - 60, e.touches[0].clientY - dragStartY.value))
 }
-function onFloatTouchEnd() { isDragging.value = false; startTick() }
+function onFloatTouchEnd() {
+  isDragging.value = false
+  saveBallPosition(floatX.value, floatY.value)
+  startTick()
+}
 function onFloatMouseDown(e: MouseEvent) {
   isDragging.value = true
   dragStartX.value = e.clientX - floatX.value
@@ -287,7 +327,11 @@ function onFloatMouseMove(e: MouseEvent) {
   floatX.value = Math.max(0, Math.min(window.innerWidth - 110, e.clientX - dragStartX.value))
   floatY.value = Math.max(0, Math.min(window.innerHeight - 60, e.clientY - dragStartY.value))
 }
-function onFloatMouseUp() { isDragging.value = false; startTick() }
+function onFloatMouseUp() {
+  isDragging.value = false
+  saveBallPosition(floatX.value, floatY.value)
+  startTick()
+}
 
 // Panel drag
 function onPanelMouseDown(e: MouseEvent) {
@@ -301,7 +345,10 @@ function onPanelMouseMove(e: MouseEvent) {
   panelX.value = Math.max(0, Math.min(window.innerWidth - 310, e.clientX - panelDragStartX.value))
   panelY.value = Math.max(0, Math.min(window.innerHeight - 500, e.clientY - panelDragStartY.value))
 }
-function onPanelMouseUp() { isPanelDragging.value = false }
+function onPanelMouseUp() {
+  isPanelDragging.value = false
+  savePanelPosition(panelX.value, panelY.value)
+}
 
 async function selectSource(src: TimeSource) {
   timeSource.value = src
@@ -309,43 +356,55 @@ async function selectSource(src: TimeSource) {
   await doSync()
 }
 
+// ========== 修复: 秒表 timer 正确清理 ==========
 function toggleStopwatch() {
   if (stopwatchActive.value) {
     stopwatchActive.value = false
-    if (stopwatchTimer) clearInterval(stopwatchTimer)
+    if (stopwatchTimer) { clearInterval(stopwatchTimer); stopwatchTimer = null }
   } else {
     stopwatchActive.value = true
     stopwatchStart.value = Date.now() + offsetMs.value
+    // 切换前先清除旧 timer，防止叠加
+    if (stopwatchTimer) { clearInterval(stopwatchTimer); stopwatchTimer = null }
     stopwatchTimer = setInterval(() => {
       stopwatchMs.value = Date.now() + offsetMs.value - stopwatchStart.value
     }, 16)
   }
 }
-function resetStopwatch() { stopwatchMs.value = 0; stopwatchStart.value = Date.now() + offsetMs.value }
+function resetStopwatch() {
+  stopwatchMs.value = 0
+  stopwatchStart.value = Date.now() + offsetMs.value
+}
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000)
   return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${String(Math.floor((ms%1000)/10)).padStart(2,'0')}`
 }
 
+// ========== 修复: 窗口大小变化时校正悬浮球位置 ==========
+function onWindowResize() {
+  floatX.value = Math.max(0, Math.min(window.innerWidth - 110, floatX.value))
+  floatY.value = Math.max(0, Math.min(window.innerHeight - 60, floatY.value))
+  panelX.value = Math.max(0, Math.min(window.innerWidth - 310, panelX.value))
+  panelY.value = Math.max(0, Math.min(window.innerHeight - 500, panelY.value))
+}
+
 onMounted(async () => {
-  // 恢复主题设置
   const savedTheme = localStorage.getItem('floattime-theme') as ThemeMode | null
-  if (savedTheme) {
-    themeMode.value = savedTheme
-  }
+  if (savedTheme) themeMode.value = savedTheme
   setupThemeListener()
   applyTheme()
-  
+  window.addEventListener('resize', onWindowResize)
+
   await doSync()
   startTick()
   startSyncInterval()
 })
 
-// ✅ 修复 1: 正确移除事件监听器
 onUnmounted(() => {
-  clearInterval(tickTimer!)
-  clearInterval(syncTimer!)
-  clearInterval(stopwatchTimer!)
+  if (tickTimer) clearInterval(tickTimer)
+  if (syncTimer) clearInterval(syncTimer)
+  if (stopwatchTimer) clearInterval(stopwatchTimer)
+  window.removeEventListener('resize', onWindowResize)
   if (darkModeQuery && darkModeListener) {
     darkModeQuery.removeEventListener('change', darkModeListener)
   }
@@ -395,21 +454,9 @@ onUnmounted(() => {
         <!-- 主题切换 -->
         <div class="section-title">🎨 外观主题</div>
         <div class="theme-switcher">
-          <button 
-            class="theme-btn" 
-            :class="{ active: themeMode === 'auto' }"
-            @click="setThemeMode('auto')"
-          >🔄 跟随系统</button>
-          <button 
-            class="theme-btn" 
-            :class="{ active: themeMode === 'light' }"
-            @click="setThemeMode('light')"
-          >☀️ 日间</button>
-          <button 
-            class="theme-btn" 
-            :class="{ active: themeMode === 'dark' }"
-            @click="setThemeMode('dark')"
-          >🌙 夜间</button>
+          <button class="theme-btn" :class="{ active: themeMode === 'auto' }" @click="setThemeMode('auto')">🔄 跟随系统</button>
+          <button class="theme-btn" :class="{ active: themeMode === 'light' }" @click="setThemeMode('light')">☀️ 日间</button>
+          <button class="theme-btn" :class="{ active: themeMode === 'dark' }" @click="setThemeMode('dark')">🌙 夜间</button>
         </div>
 
         <div class="section-title">时间源</div>
@@ -489,12 +536,9 @@ onUnmounted(() => {
 }
 .float-ball:active { cursor: grabbing; }
 
-/* 夜间模式悬浮球 */
 .float-ball.is-dark .float-time { color: #e8e8e8; text-shadow: 0 0 8px rgba(255,255,255,.25), 0 1px 3px rgba(0,0,0,.5); }
 .float-ball.is-dark .float-date { color: rgba(255,255,255,.6); }
 .float-ball.is-dark .float-src { opacity: .7; }
-
-/* 日间模式 */
 .float-ball:not(.is-dark) .float-time { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .float-ball:not(.is-dark) .float-date { color: rgba(255,255,255,.8); }
 
@@ -533,31 +577,21 @@ onUnmounted(() => {
 .settings-panel.is-dark .source-desc,
 .settings-panel.is-dark .status-label,
 .settings-panel.is-dark .stopwatch-title { color: rgba(255,255,255,.45); }
-
-/* 深色主题 - 主题按钮 */
 .settings-panel.is-dark .theme-btn { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); color: rgba(255,255,255,.8); }
 .settings-panel.is-dark .theme-btn:hover { background: rgba(255,255,255,.12); }
 .settings-panel.is-dark .theme-btn.active { border-color: #6B9FFF; background: rgba(107,159,255,.2); color: #fff; }
-
-/* 深色主题 - 源列表项 */
 .settings-panel.is-dark .source-item { background: rgba(255,255,255,.05); }
 .settings-panel.is-dark .source-item:hover { background: rgba(255,255,255,.1); }
 .settings-panel.is-dark .source-item.taobao.active  { border-color: #FF6B3D; background: rgba(255,107,61,.15); }
 .settings-panel.is-dark .source-item.meituan.active { border-color: #FFD54F; background: rgba(255,213,79,.15); }
 .settings-panel.is-dark .source-item.local.active   { border-color: #64B5F6; background: rgba(100,181,246,.15); }
-
-/* 深色主题 - 状态栏 */
 .settings-panel.is-dark .status-bar { background: rgba(255,255,255,.05); }
 .settings-panel.is-dark .status-item { border-right-color: rgba(255,255,255,.08); }
 .settings-panel.is-dark .sync-btn { background: rgba(255,255,255,.1); color: #fff; }
 .settings-panel.is-dark .sync-btn:hover:not(:disabled) { background: rgba(255,255,255,.2); }
-
-/* 深色主题 - 秒表 */
 .settings-panel.is-dark .stopwatch { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); }
 .settings-panel.is-dark .stopwatch-btns button { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); color: #fff; }
 .settings-panel.is-dark .stopwatch-btns button:hover { background: rgba(255,255,255,.15); }
-
-/* 深色主题 - 关闭按钮 */
 .settings-panel.is-dark .close-btn { background: rgba(255,255,255,.1); color: rgba(255,255,255,.6); }
 .settings-panel.is-dark .close-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
 
@@ -582,7 +616,7 @@ onUnmounted(() => {
 .settings-panel:not(.is-dark) .stopwatch { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.06); }
 .settings-panel:not(.is-dark) .stopwatch-btns button { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.08); color: #1a1a2e; }
 .settings-panel:not(.is-dark) .close-btn { background: rgba(0,0,0,.06); color: #666; }
-.settings-panel:not(.is-dark) .theme-btn { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.08); }
+.settings-panel:not(.is-dark) .theme-btn { background: rgba(0,0,0,.03); border-color: rgba(0,0,0,.08); color: #1a1a2e; }
 .settings-panel:not(.is-dark) .theme-btn:hover { background: rgba(0,0,0,.06); }
 .settings-panel:not(.is-dark) .theme-btn.active { border-color: #4A90E2; background: rgba(74,144,226,.1); }
 
@@ -614,12 +648,7 @@ onUnmounted(() => {
 
 .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
 
-/* 主题切换按钮 */
-.theme-switcher {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
+.theme-switcher { display: flex; gap: 8px; margin-bottom: 12px; }
 .theme-btn {
   flex: 1;
   padding: 10px 6px;
@@ -630,18 +659,10 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.15s;
 }
-.theme-btn:hover {
-  background: rgba(255,255,255,.08);
-}
-.theme-btn.active {
-  border-color: #4A90E2;
-  background: rgba(74,144,226,.15);
-}
-.settings-panel:not(.is-dark) .theme-btn { color: #1a1a2e; }
-.settings-panel.is-dark .theme-btn { color: #fff; }
+.theme-btn:hover { background: rgba(255,255,255,.08); }
+.theme-btn.active { border-color: #4A90E2; background: rgba(74,144,226,.15); }
 
 .source-list { display: flex; flex-direction: column; gap: 6px; }
-
 .source-item {
   display: flex;
   align-items: center;
@@ -657,7 +678,6 @@ onUnmounted(() => {
 .source-item.taobao.active  { border-color: #FF5000; background: rgba(255,80,0,.12); }
 .source-item.meituan.active { border-color: #FFD100; background: rgba(255,209,0,.12); }
 .source-item.local.active   { border-color: #4A90E2; background: rgba(74,144,226,.12); }
-
 .source-icon { font-size: 24px; flex-shrink: 0; }
 .source-info { flex: 1; }
 .source-name { font-size: 14px; font-weight: 600; }
@@ -691,4 +711,5 @@ onUnmounted(() => {
 
 .panel-enter-active, .panel-leave-active { transition: opacity .2s, transform .2s; }
 .panel-enter-from, .panel-leave-to { opacity: 0; transform: scale(.92) translateY(8px); }
+
 </style>
