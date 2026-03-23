@@ -4,9 +4,9 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,13 +15,24 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Android 16 Live Updates 管理器
  *
- * 使用 android.app.liveupdates API 实现:
- * - TimerTemplate: 秒表实时计时
- * - ProgressTemplate: 时间同步进度
- * - OngoingActivity: 状态胶囊展示
+ * 使用 Notification.ProgressStyle (API 36+) 实现:
+ * - 时间显示进度条 (从午夜到当前时间)
+ * - 时间同步进度条
+ * - 秒表计时进度条
+ *
+ * Live Updates 条件:
+ * 1. 使用 Notification.ProgressStyle 模板
+ * 2. setOngoing(true) 标记为进行中
+ * 3. 状态栏简短摘要
+ * 4. POST_PROMOTED_NOTIFICATIONS 权限 (已声明)
+ * 5. requestPromotedOngoing API 调用
  *
  * 兼容 API < 36: 回退到普通 Notification
  */
@@ -29,60 +40,40 @@ public class LiveUpdateManager {
 
     private static final String TAG = "LiveUpdateManager";
 
-    // ===== 渠道 =====
-    private static final String CHANNEL_ID = "float_time_live_updates";
+    private static final String CHANNEL_ID   = "float_time_live_updates";
     private static final String CHANNEL_NAME = "实时活动";
     private static final String CHANNEL_DESC = "显示时间同步、秒表等实时状态";
 
-    // ===== 通知 ID =====
     public static final int ID_TIME_SYNC  = 3001;
     public static final int ID_STOPWATCH  = 3002;
     public static final int ID_COUNTDOWN  = 3003;
 
-    // ===== Live Update 会话 ID =====
-    private static final int SESSION_SYNC      = 100;
-    private static final int SESSION_STOPWATCH = 101;
+    // 24 小时 = 86400 秒，进度条总量
+    private static final int DAY_PROGRESS_MAX = 1000;
 
-    // ===== 依赖 =====
     private final Context mContext;
     private final NotificationManager mNotifMgr;
     private final Handler mHandler;
 
-    // ===== Android 16 Live Updates 实例 =====
-    private android.app.LiveUpdateManager mLiveUpdateMgr;
-
-    // ===== 秒表 =====
-    private long mStopwatchBaseElapsed = 0;
-    private boolean mStopwatchRunning  = false;
+    // 秒表
+    private long     mStopwatchBase = 0;
+    private boolean  mStopwatchOn   = false;
     private Runnable mStopwatchTick;
-    private int mStopwatchUpdateCount = 0;
+    private Object   mStopwatchTracker;  // ProgressStyle tracker
 
-    // ===== 构造 =====
     public LiveUpdateManager(Context context) {
         mContext  = context.getApplicationContext();
         mNotifMgr = (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
         mHandler  = new Handler(Looper.getMainLooper());
-
-        createNotificationChannel();
-
-        // Android 16+: 获取 LiveUpdateManager 系统服务
-        if (isSupported()) {
-            try {
-                mLiveUpdateMgr = mContext.getSystemService(android.app.LiveUpdateManager.class);
-            } catch (Exception e) {
-                Log.w(TAG, "无法获取 LiveUpdateManager: " + e.getMessage());
-            }
-        }
-
-        Log.d(TAG, "初始化完成 | API=" + Build.VERSION.SDK_INT
-                + " | LiveUpdate=" + (mLiveUpdateMgr != null));
+        createChannel();
+        Log.d(TAG, "init | API=" + Build.VERSION.SDK_INT);
     }
 
     // ================================================================
-    //  通知渠道
+    //  渠道
     // ================================================================
 
-    private void createNotificationChannel() {
+    private void createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
         NotificationChannel ch = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME,
@@ -96,321 +87,226 @@ public class LiveUpdateManager {
         ch.setLightColor(0xFF4A90E2);
         ch.setBypassDnd(true);
         ch.setSound(null, null);
-
-        if (mNotifMgr != null) mNotifMgr.createNotificationChannel(ch);
+        mNotifMgr.createNotificationChannel(ch);
     }
 
     // ================================================================
-    //  公共接口
+    //  公共
     // ================================================================
 
-    /** 是否支持 Android 16 Live Updates */
     public boolean isSupported() {
         return Build.VERSION.SDK_INT >= 36;
     }
 
-    /** 是否能发布 Live Updates */
-    public boolean canPost() {
-        return mNotifMgr != null && mNotifMgr.areNotificationsEnabled();
-    }
-
-    /** 清除所有 */
     public void clearAll() {
         stopStopwatch();
-        cancel(ID_TIME_SYNC);
-        cancel(ID_COUNTDOWN);
+        mNotifMgr.cancel(ID_TIME_SYNC);
+        mNotifMgr.cancel(ID_COUNTDOWN);
     }
 
     // ================================================================
-    //  ⏱ 时钟实时通知 (主通知 — 前台服务用)
+    //  🕐 时钟通知 (前台服务主通知)
     // ================================================================
 
     /**
-     * 为前台服务创建时钟通知。
-     * API 36+: 使用 Live Updates (OngoingActivity + TimerTemplate)
-     * API <36:  普通 Notification
+     * 创建时钟通知。
+     * API 36+: Notification.ProgressStyle
+     * API < 36: 普通 Notification
      */
-    public Notification createClockNotification(Service service,
-                                                  String timeStr,
-                                                  String millisStr,
-                                                  String sourceName,
-                                                  boolean isNight) {
-        if (isSupported() && mLiveUpdateMgr != null) {
-            return createClockNotificationLive(service, timeStr, millisStr, sourceName, isNight);
-        }
-        return createClockNotificationLegacy(service, timeStr, millisStr, sourceName);
+    public Notification createClockNotification(Context ctx,
+                                                 String timeStr, String millisStr,
+                                                 String source, boolean isNight) {
+        if (isSupported()) return createClockLive(ctx, timeStr, millisStr, source);
+        return createClockLegacy(ctx, timeStr, millisStr, source);
     }
 
-    /** API < 36: 普通通知 */
-    private Notification createClockNotificationLegacy(Service service,
-                                                        String timeStr,
-                                                        String millisStr,
-                                                        String sourceName) {
-        NotificationCompat.Builder b = new NotificationCompat.Builder(service, CHANNEL_ID)
+    /** API 36+: ProgressStyle */
+    private Notification createClockLive(Context ctx, String timeStr,
+                                          String millisStr, String source) {
+        try {
+            int progress = getDayProgress();
+
+            Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                    .setStyledByProgress(false)
+                    .setProgress(progress);
+
+            PendingIntent pi = mainPI(ctx, 99);
+
+            Notification.Builder b = new Notification.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle("🕐 " + timeStr + millisStr)
+                    .setContentText(source)
+                    .setContentIntent(pi)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setStyle(ps);
+
+            Notification n = b.build();
+            tryPromote(ctx, n);
+            return n;
+        } catch (Exception e) {
+            Log.e(TAG, "createClockLive: " + e.getMessage());
+            return createClockLegacy(ctx, timeStr, millisStr, source);
+        }
+    }
+
+    /** 更新时钟 (每秒调用) */
+    public void updateClock(Context ctx, String timeStr, String millisStr, String source) {
+        if (!isSupported()) return;
+        try {
+            int progress = getDayProgress();
+            Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                    .setStyledByProgress(false)
+                    .setProgress(progress);
+
+            PendingIntent pi = mainPI(ctx, 99);
+
+            Notification n = new Notification.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle("🕐 " + timeStr + millisStr)
+                    .setContentText(source)
+                    .setContentIntent(pi)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setStyle(ps)
+                    .build();
+
+            mNotifMgr.notify(99, n);
+        } catch (Exception e) {
+            Log.w(TAG, "updateClock: " + e.getMessage());
+        }
+    }
+
+    /** API < 36 回退 */
+    private Notification createClockLegacy(Context ctx, String timeStr,
+                                            String millisStr, String source) {
+        PendingIntent pi = mainPI(ctx, 99);
+        return new NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                 .setContentTitle("🕐 " + timeStr + millisStr)
-                .setContentText(sourceName + " · 点击打开")
-                .setContentIntent(mainIntent(service, 99))
+                .setContentText(source + " · 点击打开")
+                .setContentIntent(pi)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setOnlyAlertOnce(true)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-        return b.build();
-    }
-
-    /** API 36+: Live Updates 时钟通知 */
-    private Notification createClockNotificationLive(Service service,
-                                                      String timeStr,
-                                                      String millisStr,
-                                                      String sourceName,
-                                                      boolean isNight) {
-        try {
-            // 构建标准通知
-            Notification notif = new Notification.Builder(service, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle("🕐 " + timeStr + millisStr)
-                    .setContentText(sourceName)
-                    .setContentIntent(mainIntent(service, 99))
-                    .setOngoing(true)
-                    .setShowWhen(false)
-                    .setOnlyAlertOnce(true)
-                    .setVisibility(Notification.VISIBILITY_PUBLIC)
-                    .build();
-
-            // 从今天 00:00 开始计时 → 显示当前时间 (HH:mm:ss)
-            long todayMidnight = getTodayMidnight();
-            long elapsedSec = (System.currentTimeMillis() - todayMidnight) / 1000;
-
-            // TimerTemplate
-            android.app.liveupdates.TimerTemplate template =
-                    new android.app.liveupdates.TimerTemplate(
-                            new android.app.liveupdates.TimerTemplate.TimerConfig(
-                                    new android.app.liveupdates.TimerTemplate.Chronometer(
-                                            elapsedSec,
-                                            /* countDown */ false
-                                    )
-                            )
-                    );
-
-            // OngoingActivity
-            android.app.liveupdates.OngoingActivity oa =
-                    new android.app.liveupdates.OngoingActivity.Builder(
-                            notif,
-                            new android.app.liveupdates.LiveUpdateData(
-                                    SESSION_SYNC, CHANNEL_ID, template
-                            )
-                    )
-                    .setStatus(new android.app.liveupdates.Status(
-                            android.app.liveupdates.Status.STATUS_ACTIVE,
-                            sourceName
-                    ))
-                    .setStaticChip(service.getApplicationInfo().icon)
-                    .build();
-
-            oa.publish(service, SESSION_SYNC);
-            return notif;
-
-        } catch (Exception e) {
-            Log.e(TAG, "createClockNotificationLive 失败: " + e.getMessage());
-            return createClockNotificationLegacy(service, timeStr, millisStr, sourceName);
-        }
-    }
-
-    /** 更新时钟的 Live Update (每秒调用) */
-    public void updateClock(Service service, String timeStr, String millisStr, String sourceName) {
-        if (!isSupported() || mLiveUpdateMgr == null) return;
-        try {
-            long todayMidnight = getTodayMidnight();
-            long elapsedSec = (System.currentTimeMillis() - todayMidnight) / 1000;
-
-            android.app.liveupdates.TimerTemplate template =
-                    new android.app.liveupdates.TimerTemplate(
-                            new android.app.liveupdates.TimerTemplate.TimerConfig(
-                                    new android.app.liveupdates.TimerTemplate.Chronometer(
-                                            elapsedSec, false
-                                    )
-                            )
-                    );
-
-            Notification notif = new Notification.Builder(service, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle("🕐 " + timeStr + millisStr)
-                    .setContentText(sourceName)
-                    .setContentIntent(mainIntent(service, 99))
-                    .setOngoing(true)
-                    .setShowWhen(false)
-                    .setOnlyAlertOnce(true)
-                    .setVisibility(Notification.VISIBILITY_PUBLIC)
-                    .build();
-
-            android.app.liveupdates.LiveUpdateData data =
-                    new android.app.liveupdates.LiveUpdateData(
-                            SESSION_SYNC, CHANNEL_ID, template
-                    );
-
-            mLiveUpdateMgr.update(data, notif);
-        } catch (Exception e) {
-            Log.w(TAG, "updateClock: " + e.getMessage());
-        }
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .build();
     }
 
     // ================================================================
     //  🔄 时间同步 Live Updates
     // ================================================================
 
-    /** 同步中 */
     public void showTimeSyncing(String source) {
         String name = srcName(source);
 
-        if (isSupported() && mLiveUpdateMgr != null) {
+        if (isSupported()) {
             try {
-                android.app.liveupdates.ProgressTracker tracker =
-                        new android.app.liveupdates.ProgressTracker();
-                tracker.setIndeterminate(true);
+                Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                        .setStyledByProgress(false)
+                        .setProgress(0);
 
-                Notification notif = new Notification.Builder(mContext, CHANNEL_ID)
+                Notification n = new Notification.Builder(mContext, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.ic_popup_sync)
                         .setContentTitle("同步中")
-                        .setContentText("从 " + name + " 获取时间…")
-                        .setContentIntent(mainIntent(mContext, ID_TIME_SYNC))
-                        .setOngoing(false)
-                        .setAutoCancel(true)
+                        .setContentText("从 " + name + " 获取…")
+                        .setContentIntent(mainPI(mContext, ID_TIME_SYNC))
+                        .setOngoing(true)
                         .setProgress(0, 0, true)
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
+                        .setStyle(ps)
                         .build();
 
-                android.app.liveupdates.ProgressTemplate tpl =
-                        new android.app.liveupdates.ProgressTemplate(tracker);
-
-                android.app.liveupdates.LiveUpdateData data =
-                        new android.app.liveupdates.LiveUpdateData(
-                                SESSION_SYNC, CHANNEL_ID, tpl
-                        );
-
-                android.app.liveupdates.OngoingActivity oa =
-                        new android.app.liveupdates.OngoingActivity.Builder(notif, data)
-                                .setStatus(new android.app.liveupdates.Status(
-                                        android.app.liveupdates.Status.STATUS_ACTIVE,
-                                        "同步中"))
-                                .build();
-
-                oa.publish(mContext, SESSION_SYNC);
+                mNotifMgr.notify(ID_TIME_SYNC, n);
+                tryPromote(mContext, n);
                 return;
             } catch (Exception e) {
                 Log.w(TAG, "showTimeSyncing: " + e.getMessage());
             }
         }
 
-        // 回退
-        Notification n = new NotificationCompat.Builder(mContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_popup_sync)
-                .setContentTitle("同步中")
-                .setContentText("从 " + name + " 获取时间…")
-                .setOngoing(false).setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setProgress(0, 0, true)
-                .build();
-        notify(ID_TIME_SYNC, n);
+        mNotifMgr.notify(ID_TIME_SYNC,
+                new NotificationCompat.Builder(mContext, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_popup_sync)
+                        .setContentTitle("同步中")
+                        .setContentText("从 " + name + " 获取…")
+                        .setOngoing(true).setProgress(0, 0, true).build());
     }
 
-    /** 同步成功 */
     public void showTimeSyncSuccess(String source, long offsetMs) {
-        String name  = srcName(source);
-        String sign  = offsetMs >= 0 ? "+" : "";
-        String label = name + " 偏差 " + sign + offsetMs + "ms";
+        String name = srcName(source);
+        String sign = offsetMs >= 0 ? "+" : "";
+        String text = name + " 偏差 " + sign + offsetMs + "ms";
 
-        if (isSupported() && mLiveUpdateMgr != null) {
+        if (isSupported()) {
             try {
-                android.app.liveupdates.ProgressTracker tracker =
-                        new android.app.liveupdates.ProgressTracker();
-                tracker.setProgress(100);
+                Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                        .setStyledByProgress(false)
+                        .setProgress(100);
 
-                Notification notif = new Notification.Builder(mContext, CHANNEL_ID)
+                Notification n = new Notification.Builder(mContext, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.ic_input_get)
-                        .setContentTitle("✅ 时间已校准")
-                        .setContentText(label)
+                        .setContentTitle("✅ 已校准")
+                        .setContentText(text)
                         .setAutoCancel(true)
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
+                        .setStyle(ps)
                         .build();
 
-                android.app.liveupdates.ProgressTemplate tpl =
-                        new android.app.liveupdates.ProgressTemplate(tracker);
-
-                android.app.liveupdates.LiveUpdateData data =
-                        new android.app.liveupdates.LiveUpdateData(
-                                SESSION_SYNC, CHANNEL_ID, tpl
-                        );
-
-                android.app.liveupdates.OngoingActivity oa =
-                        new android.app.liveupdates.OngoingActivity.Builder(notif, data)
-                                .setStatus(new android.app.liveupdates.Status(
-                                        android.app.liveupdates.Status.STATUS_RESOLVED,
-                                        "已校准"))
-                                .build();
-
-                oa.publish(mContext, SESSION_SYNC);
+                mNotifMgr.notify(ID_TIME_SYNC, n);
             } catch (Exception e) {
                 Log.w(TAG, "showTimeSyncSuccess: " + e.getMessage());
             }
         } else {
-            Notification n = new NotificationCompat.Builder(mContext, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_input_get)
-                    .setContentTitle("✅ 时间已校准")
-                    .setContentText(label)
-                    .setAutoCancel(true).build();
-            notify(ID_TIME_SYNC, n);
+            mNotifMgr.notify(ID_TIME_SYNC,
+                    new NotificationCompat.Builder(mContext, CHANNEL_ID)
+                            .setSmallIcon(android.R.drawable.ic_input_get)
+                            .setContentTitle("✅ 已校准")
+                            .setContentText(text)
+                            .setAutoCancel(true).build());
         }
 
-        mHandler.postDelayed(() -> cancel(ID_TIME_SYNC), 3000);
+        mHandler.postDelayed(() -> mNotifMgr.cancel(ID_TIME_SYNC), 3000);
     }
 
-    /** 同步失败 */
     public void showTimeSyncFailed(String source) {
         String name = srcName(source);
 
-        if (isSupported() && mLiveUpdateMgr != null) {
+        if (isSupported()) {
             try {
-                android.app.liveupdates.ProgressTracker tracker =
-                        new android.app.liveupdates.ProgressTracker();
-                tracker.setProgress(0);
+                Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                        .setStyledByProgress(false)
+                        .setProgress(0);
 
-                Notification notif = new Notification.Builder(mContext, CHANNEL_ID)
+                Notification n = new Notification.Builder(mContext, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.ic_dialog_alert)
                         .setContentTitle("❌ 同步失败")
-                        .setContentText("无法连接 " + name + "，已用本地时间")
+                        .setContentText("无法连接 " + name)
                         .setAutoCancel(true)
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
+                        .setStyle(ps)
                         .build();
 
-                android.app.liveupdates.LiveUpdateData data =
-                        new android.app.liveupdates.LiveUpdateData(
-                                SESSION_SYNC, CHANNEL_ID,
-                                new android.app.liveupdates.ProgressTemplate(tracker)
-                        );
-
-                android.app.liveupdates.OngoingActivity oa =
-                        new android.app.liveupdates.OngoingActivity.Builder(notif, data)
-                                .setStatus(new android.app.liveupdates.Status(
-                                        android.app.liveupdates.Status.STATUS_RESOLVED,
-                                        "失败"))
-                                .build();
-
-                oa.publish(mContext, SESSION_SYNC);
+                mNotifMgr.notify(ID_TIME_SYNC, n);
             } catch (Exception e) {
                 Log.w(TAG, "showTimeSyncFailed: " + e.getMessage());
             }
         } else {
-            Notification n = new NotificationCompat.Builder(mContext, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                    .setContentTitle("❌ 同步失败")
-                    .setContentText("无法连接 " + name)
-                    .setAutoCancel(true).build();
-            notify(ID_TIME_SYNC, n);
+            mNotifMgr.notify(ID_TIME_SYNC,
+                    new NotificationCompat.Builder(mContext, CHANNEL_ID)
+                            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                            .setContentTitle("❌ 同步失败")
+                            .setContentText("无法连接 " + name)
+                            .setAutoCancel(true).build());
         }
 
-        mHandler.postDelayed(() -> cancel(ID_TIME_SYNC), 5000);
+        mHandler.postDelayed(() -> mNotifMgr.cancel(ID_TIME_SYNC), 5000);
     }
 
     // ================================================================
@@ -418,170 +314,149 @@ public class LiveUpdateManager {
     // ================================================================
 
     public void startStopwatch() {
-        if (mStopwatchRunning) return;
-        mStopwatchRunning   = true;
-        mStopwatchUpdateCount = 0;
-        mStopwatchBaseElapsed = SystemClock.elapsedRealtime();
+        if (mStopwatchOn) return;
+        mStopwatchOn   = true;
+        mStopwatchBase = SystemClock.elapsedRealtime();
 
-        PendingIntent pausePI = svcIntent(mContext, "STOPWATCH_PAUSE", 10);
-        PendingIntent stopPI  = svcIntent(mContext, "STOPWATCH_STOP",  11);
+        PendingIntent pausePI = svcPI(mContext, "STOPWATCH_PAUSE", 10);
+        PendingIntent stopPI  = svcPI(mContext, "STOPWATCH_STOP",  11);
 
         mStopwatchTick = new Runnable() {
             @Override public void run() {
-                if (!mStopwatchRunning) return;
-                long elapsed = SystemClock.elapsedRealtime() - mStopwatchBaseElapsed;
-                updateStopwatchNotification(elapsed, pausePI, stopPI);
+                if (!mStopwatchOn) return;
+                long el = SystemClock.elapsedRealtime() - mStopwatchBase;
+                pushStopwatch(el, pausePI, stopPI);
                 mHandler.postDelayed(this, 100);
             }
         };
         mHandler.post(mStopwatchTick);
     }
 
-    private void updateStopwatchNotification(long elapsedMs,
-                                              PendingIntent pausePI,
-                                              PendingIntent stopPI) {
-        String timeFmt = fmtStopwatch(elapsedMs);
-        mStopwatchUpdateCount++;
+    private void pushStopwatch(long elapsedMs, PendingIntent pausePI, PendingIntent stopPI) {
+        String text = fmtSW(elapsedMs);
+        long sec = elapsedMs / 1000;
 
-        if (isSupported() && mLiveUpdateMgr != null) {
+        if (isSupported()) {
             try {
-                long elapsedSec = elapsedMs / 1000;
+                Notification.ProgressStyle ps = new Notification.ProgressStyle()
+                        .setStyledByProgress(false)
+                        .setProgress((int)(sec % 60) * 1000 / 60);
 
-                Notification notif = new Notification.Builder(mContext, CHANNEL_ID)
+                Notification n = new Notification.Builder(mContext, CHANNEL_ID)
                         .setSmallIcon(android.R.drawable.ic_media_play)
                         .setContentTitle("⏱ 秒表")
-                        .setContentText(timeFmt)
+                        .setContentText(text)
                         .setOngoing(true)
+                        .setVisibility(Notification.VISIBILITY_PUBLIC)
                         .addAction(new Notification.Action.Builder(
                                 android.R.drawable.ic_media_pause, "暂停", pausePI).build())
                         .addAction(new Notification.Action.Builder(
                                 android.R.drawable.ic_media_stop, "停止", stopPI).build())
-                        .setVisibility(Notification.VISIBILITY_PUBLIC)
+                        .setStyle(ps)
                         .build();
 
-                android.app.liveupdates.TimerTemplate tpl =
-                        new android.app.liveupdates.TimerTemplate(
-                                new android.app.liveupdates.TimerTemplate.TimerConfig(
-                                        new android.app.liveupdates.TimerTemplate.Chronometer(
-                                                elapsedSec, false
-                                        )
-                                )
-                        );
-
-                android.app.liveupdates.LiveUpdateData data =
-                        new android.app.liveupdates.LiveUpdateData(
-                                SESSION_STOPWATCH, CHANNEL_ID, tpl
-                        );
-
-                // 只有第 1 次和每 10 次才 publish OngoingActivity
-                if (mStopwatchUpdateCount <= 1 || mStopwatchUpdateCount % 10 == 0) {
-                    android.app.liveupdates.OngoingActivity oa =
-                            new android.app.liveupdates.OngoingActivity.Builder(notif, data)
-                                    .setStatus(new android.app.liveupdates.Status(
-                                            android.app.liveupdates.Status.STATUS_ACTIVE,
-                                            timeFmt))
-                                    .build();
-                    oa.publish(mContext, SESSION_STOPWATCH);
-                } else {
-                    mLiveUpdateMgr.update(data, notif);
-                }
+                mNotifMgr.notify(ID_STOPWATCH, n);
                 return;
             } catch (Exception e) {
-                Log.w(TAG, "stopwatch live update: " + e.getMessage());
+                Log.w(TAG, "stopwatch live: " + e.getMessage());
             }
         }
 
-        // 回退
-        Notification n = new NotificationCompat.Builder(mContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle("⏱ 秒表")
-                .setContentText(timeFmt)
-                .setOngoing(true)
-                .addAction(android.R.drawable.ic_media_pause, "暂停", pausePI)
-                .addAction(android.R.drawable.ic_media_stop, "停止", stopPI)
-                .build();
-        notify(ID_STOPWATCH, n);
+        mNotifMgr.notify(ID_STOPWATCH,
+                new NotificationCompat.Builder(mContext, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_media_play)
+                        .setContentTitle("⏱ 秒表")
+                        .setContentText(text)
+                        .setOngoing(true)
+                        .addAction(android.R.drawable.ic_media_pause, "暂停", pausePI)
+                        .addAction(android.R.drawable.ic_media_stop, "停止", stopPI)
+                        .build());
     }
 
     public void pauseStopwatch() {
-        mStopwatchRunning = false;
+        mStopwatchOn = false;
         if (mStopwatchTick != null) mHandler.removeCallbacks(mStopwatchTick);
+        long el = SystemClock.elapsedRealtime() - mStopwatchBase;
 
-        long elapsed = SystemClock.elapsedRealtime() - mStopwatchBaseElapsed;
-
-        Notification n = new NotificationCompat.Builder(mContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_pause)
-                .setContentTitle("⏸ 秒表暂停")
-                .setContentText(fmtStopwatch(elapsed))
-                .setOngoing(true)
-                .setAutoCancel(true).build();
-        notify(ID_STOPWATCH, n);
+        mNotifMgr.notify(ID_STOPWATCH,
+                new NotificationCompat.Builder(mContext, CHANNEL_ID)
+                        .setSmallIcon(android.R.drawable.ic_media_pause)
+                        .setContentTitle("⏸ 秒表暂停")
+                        .setContentText(fmtSW(el))
+                        .setOngoing(true).setAutoCancel(true).build());
     }
 
     public void stopStopwatch() {
-        mStopwatchRunning = false;
+        mStopwatchOn = false;
         if (mStopwatchTick != null) mHandler.removeCallbacks(mStopwatchTick);
-        cancel(ID_STOPWATCH);
-
-        if (isSupported() && mLiveUpdateMgr != null) {
-            try {
-                mLiveUpdateMgr.endSession(SESSION_STOPWATCH);
-            } catch (Exception ignored) {}
-        }
+        mNotifMgr.cancel(ID_STOPWATCH);
     }
 
-    public boolean isStopwatchRunning() {
-        return mStopwatchRunning;
-    }
+    public boolean isStopwatchRunning() { return mStopwatchOn; }
 
     // ================================================================
     //  内部工具
     // ================================================================
 
-    private long getTodayMidnight() {
+    /** 从午夜到现在的进度 (0 ~ DAY_PROGRESS_MAX) */
+    private int getDayProgress() {
         java.util.Calendar c = java.util.Calendar.getInstance();
-        c.set(java.util.Calendar.HOUR_OF_DAY, 0);
-        c.set(java.util.Calendar.MINUTE, 0);
-        c.set(java.util.Calendar.SECOND, 0);
-        c.set(java.util.Calendar.MILLISECOND, 0);
-        return c.getTimeInMillis();
+        int sec = c.get(java.util.Calendar.HOUR_OF_DAY) * 3600
+                + c.get(java.util.Calendar.MINUTE) * 60
+                + c.get(java.util.Calendar.SECOND);
+        return sec * DAY_PROGRESS_MAX / 86400;
     }
 
-    private String fmtStopwatch(long ms) {
-        long min = ms / 60000;
-        long sec = (ms % 60000) / 1000;
-        long cs  = (ms % 1000) / 10;
-        return String.format("%02d:%02d.%02d", min, sec, cs);
+    private String fmtSW(long ms) {
+        long m = ms / 60000;
+        long s = (ms % 60000) / 1000;
+        long c = (ms % 1000) / 10;
+        return String.format("%02d:%02d.%02d", m, s, c);
     }
 
-    private String srcName(String source) {
-        if ("taobao".equals(source))  return "淘宝时间";
-        if ("meituan".equals(source)) return "美团时间";
+    private String srcName(String src) {
+        if ("taobao".equals(src))  return "淘宝时间";
+        if ("meituan".equals(src)) return "美团时间";
         return "本地时间";
     }
 
-    private PendingIntent mainIntent(Context ctx, int reqCode) {
+    private PendingIntent mainPI(Context ctx, int req) {
         Intent i = new Intent(ctx, MainActivity.class);
         i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        return PendingIntent.getActivity(ctx, reqCode, i,
+        return PendingIntent.getActivity(ctx, req, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    private PendingIntent svcIntent(Context ctx, String action, int reqCode) {
+    private PendingIntent svcPI(Context ctx, String action, int req) {
         Intent i = new Intent(ctx, FloatTimeService.class);
         i.setAction(action);
-        return PendingIntent.getService(ctx, reqCode, i,
+        return PendingIntent.getService(ctx, req, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    private void notify(int id, Notification n) {
-        if (mNotifMgr != null && n != null) {
-            try { mNotifMgr.notify(id, n); }
-            catch (Exception e) { Log.e(TAG, "notify(" + id + "): " + e.getMessage()); }
+    /**
+     * 尝试调用 requestPromotedOngoing 提升为 Live Update。
+     * 该 API 在 Android 16 QPR1 Beta 2+ 引入，可能尚未稳定。
+     * 失败时静默忽略，核心 ProgressStyle 功能仍可用。
+     */
+    private void tryPromote(Context ctx, Notification n) {
+        if (Build.VERSION.SDK_INT < 36 || mNotifMgr == null) return;
+        try {
+            Method m = mNotifMgr.getClass().getMethod("requestPromotedOngoing", Notification.class);
+            m.invoke(mNotifMgr, n);
+            Log.d(TAG, "requestPromotedOngoing 调用成功");
+        } catch (NoSuchMethodException e) {
+            // API 可能还不稳定，尝试其他签名
+            try {
+                Method m2 = mNotifMgr.getClass().getMethod("requestPromotedOngoing",
+                        int.class, Notification.class);
+                m2.invoke(mNotifMgr, 0, n);
+                Log.d(TAG, "requestPromotedOngoing(id,notif) 调用成功");
+            } catch (Exception e2) {
+                Log.d(TAG, "requestPromotedOngoing 不可用: " + e2.getMessage());
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "tryPromote 失败: " + e.getMessage());
         }
-    }
-
-    private void cancel(int id) {
-        if (mNotifMgr != null) mNotifMgr.cancel(id);
     }
 }
