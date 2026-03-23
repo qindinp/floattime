@@ -5,7 +5,7 @@ android {
     compileSdk 36
     defaultConfig {
         applicationId "com.floattime.app"
-        minSdkVersion 24
+        minSdkVersion 27
         targetSdkVersion 36
         versionCode 3
         versionName "1.2.2"
