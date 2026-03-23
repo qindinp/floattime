@@ -57,12 +57,18 @@ public class MainActivity extends AppCompatActivity {
     private Handler mHandler;
     private Runnable mTimeRunnable;
     private SharedPreferences mPrefs;
+    
+    // Live Update 管理器
+    private LiveUpdateManager mLiveUpdateManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
         mPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        
+        // 初始化 Live Update 管理器
+        mLiveUpdateManager = new LiveUpdateManager(this);
         
         // 注册悬浮窗权限回调
         overlayPermissionLauncher = registerForActivityResult(
@@ -217,6 +223,73 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         if (mHandler != null && mTimeRunnable != null) {
             mHandler.removeCallbacks(mTimeRunnable);
+        }
+        // 清理 Live Updates
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.clearAll();
+        }
+    }
+    
+    // ==================== Live Update 公共方法 ====================
+    
+    /**
+     * 检查是否支持 Live Updates
+     */
+    public boolean isLiveUpdateSupported() {
+        return mLiveUpdateManager != null && mLiveUpdateManager.isLiveUpdateSupported();
+    }
+    
+    /**
+     * 显示时间同步中
+     */
+    public void showTimeSyncing(String source) {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.showTimeSyncing(source);
+        }
+    }
+    
+    /**
+     * 显示时间同步成功
+     */
+    public void showTimeSyncSuccess(String source, long offsetMs) {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.showTimeSyncSuccess(source, offsetMs);
+        }
+    }
+    
+    /**
+     * 显示时间同步失败
+     */
+    public void showTimeSyncFailed(String source) {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.showTimeSyncFailed(source);
+        }
+    }
+    
+    /**
+     * 启动秒表 Live Update
+     */
+    public void startStopwatchLiveUpdate() {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.startStopwatch();
+        }
+    }
+    
+    /**
+     * 暂停秒表 Live Update
+     */
+    public void pauseStopwatchLiveUpdate() {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.pauseStopwatch();
+        }
+    }
+    
+    /**
+     * 停止秒表 Live Update
+     */
+    public void stopStopwatchLiveUpdate() {
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.stopStopwatch();
         }
     }
 

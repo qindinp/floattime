@@ -29,4 +29,18 @@ export const STORAGE_KEYS = {
 } as const
 
 // 版本号
-export const APP_VERSION = '1.2.1'
+export const APP_VERSION = '1.2.2'
+
+// Live Update 配置
+export const LIVE_UPDATE_CONFIG = {
+  // 是否启用 Live Updates
+  enabled: true,
+  // 通知渠道 ID
+  channelId: 'float_time_live_update',
+  // 通知 ID
+  notificationIds: {
+    timeSync: 3001,
+    stopwatch: 3002,
+    countdown: 3003,
+  },
+} as const

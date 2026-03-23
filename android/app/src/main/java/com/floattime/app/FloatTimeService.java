@@ -41,7 +41,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 悬浮时间前台服务 - 支持日夜间模式、圆角磨砂效果
+ * 悬浮时间前台服务 - 支持日夜间模式、圆角磨砂效果、Android 16 Live Updates
  */
 public class FloatTimeService extends Service {
 
@@ -68,6 +68,9 @@ public class FloatTimeService extends Service {
     private View mFloatView;
     private WindowManager.LayoutParams mFloatParams;
     
+    // Android 16 Live Updates 管理器
+    private LiveUpdateManager mLiveUpdateManager;
+    
     private TextView mTimeText;
     private TextView mMillisText;
     private TextView mDateText;
@@ -93,7 +96,10 @@ public class FloatTimeService extends Service {
         mHandler = new Handler(Looper.getMainLooper());
         mPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         
-        log("FloatTimeService onCreate");
+        // 初始化 Live Update 管理器
+        mLiveUpdateManager = new LiveUpdateManager(this);
+        
+        log("FloatTimeService onCreate, LiveUpdate supported: " + mLiveUpdateManager.isLiveUpdateSupported());
         
         try {
             loadPreferences();
@@ -167,6 +173,24 @@ public class FloatTimeService extends Service {
                     updateSourceDisplay();
                     syncTime();
                     log("Time source changed to: " + source);
+                }
+            } else if ("STOPWATCH_START".equals(action)) {
+                // 启动秒表 Live Update
+                if (mLiveUpdateManager != null) {
+                    mLiveUpdateManager.startStopwatch();
+                    log("Stopwatch started via Live Update");
+                }
+            } else if ("STOPWATCH_PAUSE".equals(action)) {
+                // 暂停秒表
+                if (mLiveUpdateManager != null) {
+                    mLiveUpdateManager.pauseStopwatch();
+                    log("Stopwatch paused");
+                }
+            } else if ("STOPWATCH_STOP".equals(action)) {
+                // 停止秒表
+                if (mLiveUpdateManager != null) {
+                    mLiveUpdateManager.stopStopwatch();
+                    log("Stopwatch stopped");
                 }
             }
         }
@@ -509,6 +533,11 @@ public class FloatTimeService extends Service {
         updateSyncStatus(0);
         log("Syncing time from: " + mTimeSource);
         
+        // 显示 Live Update - 同步中
+        if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+            mLiveUpdateManager.showTimeSyncing(mTimeSource);
+        }
+        
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
@@ -544,19 +573,39 @@ public class FloatTimeService extends Service {
                         mPrefs.edit().putLong(KEY_OFFSET_MS, mOffsetMs).apply();
                         updateSyncStatus(1);
                         log("Time synced: offset=" + mOffsetMs + "ms");
+                        
+                        // 显示 Live Update - 同步成功
+                        if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                            mLiveUpdateManager.showTimeSyncSuccess(mTimeSource, mOffsetMs);
+                        }
                     } else {
                         updateSyncStatus(-1);
                         log("Failed to parse server time");
+                        
+                        // 显示 Live Update - 同步失败
+                        if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                            mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
+                        }
                     }
                 } else {
                     updateSyncStatus(-1);
                     log("HTTP error: " + responseCode);
+                    
+                    // 显示 Live Update - 同步失败
+                    if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                        mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
+                    }
                 }
                 
             } catch (Exception e) {
                 log("syncTime error: " + e.getMessage());
                 e.printStackTrace();
                 updateSyncStatus(-1);
+                
+                // 显示 Live Update - 同步失败
+                if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                    mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
+                }
             } finally {
                 if (conn != null) conn.disconnect();
                 mIsSyncing = false;
@@ -662,6 +711,11 @@ public class FloatTimeService extends Service {
     public void onDestroy() {
         log("onDestroy called");
         sIsRunning.set(false);
+        
+        // 清理 Live Updates
+        if (mLiveUpdateManager != null) {
+            mLiveUpdateManager.clearAll();
+        }
         
         if (mHandler != null && mTimeRunnable != null) {
             mHandler.removeCallbacks(mTimeRunnable);

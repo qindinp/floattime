@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import type { TimeSource, SyncStatus } from '../types'
 import { CORS_PROXIES, TIME_ENDPOINTS } from '../utils/config'
 import { fetchWithProxy, parseServerTime, getNestedValue } from '../utils/time'
+import { liveUpdateManager } from '../utils/liveUpdate'
 
 export function useTimeSync() {
   const timeSource = ref<TimeSource>('taobao')
@@ -95,14 +96,26 @@ export function useTimeSync() {
 
   async function doSync() {
     syncStatus.value = 'syncing'
+    
+    // 触发 Live Update - 同步中
+    liveUpdateManager.showTimeSyncing(timeSource.value)
+    
     try {
       offsetMs.value = await syncTime(timeSource.value)
       syncStatus.value = 'success'
       lastSyncTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      
+      // 触发 Live Update - 同步成功
+      liveUpdateManager.showTimeSyncSuccess(timeSource.value, offsetMs.value)
+      
       setTimeout(() => { if (syncStatus.value === 'success') syncStatus.value = 'idle' }, 3000)
     } catch {
       syncStatus.value = 'error'
       offsetMs.value = 0
+      
+      // 触发 Live Update - 同步失败
+      liveUpdateManager.showTimeSyncFailed(timeSource.value)
+      
       setTimeout(() => { if (syncStatus.value === 'error') syncStatus.value = 'idle' }, 5000)
     }
   }
