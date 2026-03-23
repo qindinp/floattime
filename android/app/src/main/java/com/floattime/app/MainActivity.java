@@ -3,14 +3,21 @@ package com.floattime.app;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
+import android.view.View;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -21,30 +28,44 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * 主界面 - 负责权限申请和服务启动
- * 显示当前时区和毫秒级时间
+ * 主界面 - 负责权限申请、服务启动、主题设置
  */
 public class MainActivity extends AppCompatActivity {
+
+    private static final String TAG = "MainActivity";
+    private static final String PREFS_NAME = "FloatTimePrefs";
+    private static final String KEY_THEME_MODE = "theme_mode";
 
     private Button startBtn;
     private Button stopBtn;
     private TextView statusText;
     private TextView timezoneText;
     private TextView currentTimeText;
+    private TextView versionText;
+    private TextView logText;
+    private RadioGroup themeGroup;
+    private RadioButton themeAuto;
+    private RadioButton themeLight;
+    private RadioButton themeDark;
     
     private ActivityResultLauncher<Intent> overlayPermissionLauncher;
     private Handler mHandler;
     private Runnable mTimeRunnable;
+    private SharedPreferences mPrefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        mPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         
         // 注册悬浮窗权限回调
         overlayPermissionLauncher = registerForActivityResult(
@@ -67,9 +88,23 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.statusText);
         timezoneText = findViewById(R.id.timezoneText);
         currentTimeText = findViewById(R.id.currentTimeText);
+        versionText = findViewById(R.id.versionText);
+        logText = findViewById(R.id.logText);
+        themeGroup = findViewById(R.id.themeGroup);
+        themeAuto = findViewById(R.id.themeAuto);
+        themeLight = findViewById(R.id.themeLight);
+        themeDark = findViewById(R.id.themeDark);
 
         startBtn.setOnClickListener(v -> checkOverlayPermission());
         stopBtn.setOnClickListener(v -> stopFloatingService());
+        
+        // 设置版本信息
+        if (versionText != null) {
+            versionText.setText("FloatTime v1.2.0");
+        }
+        
+        // 设置主题选择
+        setupThemeSelector();
         
         // 显示时区信息
         displayTimezone();
@@ -77,13 +112,111 @@ public class MainActivity extends AppCompatActivity {
         // 启动主界面时钟
         startMainClock();
         
+        // 加载日志
+        loadLog();
+        
         updateStatus();
+        
+        Log.d(TAG, "MainActivity onCreate");
+    }
+
+    private void setupThemeSelector() {
+        int savedTheme = mPrefs.getInt(KEY_THEME_MODE, 0);
+        
+        if (savedTheme == 0 && themeAuto != null) {
+            themeAuto.setChecked(true);
+        } else if (savedTheme == 1 && themeLight != null) {
+            themeLight.setChecked(true);
+        } else if (savedTheme == 2 && themeDark != null) {
+            themeDark.setChecked(true);
+        }
+        
+        if (themeGroup != null) {
+            themeGroup.setOnCheckedChangeListener((group, checkedId) -> {
+                int mode = 0;
+                if (checkedId == R.id.themeLight) {
+                    mode = 1;
+                } else if (checkedId == R.id.themeDark) {
+                    mode = 2;
+                }
+                
+                mPrefs.edit().putInt(KEY_THEME_MODE, mode).apply();
+                applyThemeMode(mode);
+                
+                // 如果服务正在运行，更新悬浮窗主题
+                if (FloatTimeService.isRunning()) {
+                    updateServiceTheme(mode);
+                }
+                
+                Log.d(TAG, "Theme changed to: " + mode);
+            });
+        }
+    }
+
+    private void applyThemeMode(int mode) {
+        boolean isNight = false;
+        if (mode == 0) {
+            // 自动模式
+            int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            isNight = (hour >= 19 || hour < 7);
+        } else {
+            isNight = (mode == 2);
+        }
+        
+        // 更新界面样式
+        int bgColor = isNight ? 0xFF1A1A2E : 0xFFFFFFFF;
+        int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;
+        int cardColor = isNight ? 0xFF2A2A3E : 0xFFF5F5F5;
+        
+        View root = findViewById(android.R.id.content);
+        root.setBackgroundColor(bgColor);
+        
+        if (statusText != null) statusText.setTextColor(textColor);
+        if (timezoneText != null) timezoneText.setTextColor(textColor);
+        if (currentTimeText != null) currentTimeText.setTextColor(textColor);
+        if (versionText != null) versionText.setTextColor(textColor);
+        
+        // 更新按钮样式
+        updateButtonStyle(startBtn, isNight);
+        updateButtonStyle(stopBtn, isNight);
+    }
+
+    private void updateButtonStyle(Button btn, boolean isNight) {
+        if (btn == null) return;
+        
+        int bgColor = isNight ? 0xFF3A3A5E : 0xFFE0E0E0;
+        int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;
+        
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setShape(GradientDrawable.RECTANGLE);
+        drawable.setCornerRadius(dpToPx(12));
+        drawable.setColor(bgColor);
+        
+        btn.setBackground(drawable);
+        btn.setTextColor(textColor);
+    }
+
+    private int dpToPx(float dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void updateServiceTheme(int mode) {
+        Intent intent = new Intent(this, FloatTimeService.class);
+        intent.setAction("CHANGE_THEME");
+        intent.putExtra("mode", mode);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         updateStatus();
+        loadLog();
     }
 
     @Override
@@ -94,16 +227,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 显示当前时区信息
-     */
     private void displayTimezone() {
         TimeZone tz = TimeZone.getDefault();
         String tzId = tz.getID();
         String tzName = tz.getDisplayName(false, TimeZone.SHORT);
-        String tzFullName = tz.getDisplayName(false, TimeZone.LONG);
         
-        // 获取时区偏移
         int offset = tz.getRawOffset() / (1000 * 60 * 60);
         String offsetStr = offset >= 0 ? "GMT+" + offset : "GMT" + offset;
         
@@ -113,9 +241,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 启动主界面时钟（带毫秒）
-     */
     private void startMainClock() {
         mHandler = new Handler(Looper.getMainLooper());
         mTimeRunnable = new Runnable() {
@@ -123,22 +248,18 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 updateMainTime();
                 if (mHandler != null) {
-                    mHandler.postDelayed(this, 50); // 50ms刷新一次，确保毫秒显示流畅
+                    mHandler.postDelayed(this, 50);
                 }
             }
         };
         mHandler.post(mTimeRunnable);
     }
 
-    /**
-     * 更新主界面时间（带毫秒）
-     */
     private void updateMainTime() {
         try {
             long now = System.currentTimeMillis();
             Date date = new Date(now);
             
-            // 格式: HH:mm:ss.SSS
             SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault());
             String timeStr = timeFmt.format(date);
             
@@ -171,9 +292,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 检查悬浮窗权限
-     */
     private void checkOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (Settings.canDrawOverlays(this)) {
@@ -186,9 +304,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 显示悬浮窗权限说明对话框
-     */
     private void showOverlayPermissionDialog() {
         new AlertDialog.Builder(this)
             .setTitle("需要悬浮窗权限")
@@ -209,9 +324,6 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    /**
-     * 检查通知权限并启动服务
-     */
     private void checkNotificationPermissionAndStart() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
@@ -236,9 +348,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * 启动悬浮服务
-     */
     private void startFloatingService() {
         try {
             Intent intent = new Intent(this, FloatTimeService.class);
@@ -255,16 +364,16 @@ public class MainActivity extends AppCompatActivity {
             
             Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show();
             
+            Log.d(TAG, "Service started");
+            
         } catch (Exception e) {
             showStatus("❌ 启动失败: " + e.getMessage());
             Toast.makeText(this, "启动失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Log.e(TAG, "Start failed: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    /**
-     * 停止悬浮服务
-     */
     private void stopFloatingService() {
         try {
             Intent intent = new Intent(this, FloatTimeService.class);
@@ -276,14 +385,14 @@ public class MainActivity extends AppCompatActivity {
             
             Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show();
             
+            Log.d(TAG, "Service stopped");
+            
         } catch (Exception e) {
             showStatus("❌ 停止失败: " + e.getMessage());
+            Log.e(TAG, "Stop failed: " + e.getMessage());
         }
     }
 
-    /**
-     * 打开应用设置页面
-     */
     private void openAppSettings() {
         try {
             Intent intent = new Intent(
@@ -293,6 +402,43 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         } catch (Exception e) {
             // 忽略
+        }
+    }
+
+    private void loadLog() {
+        if (logText == null) return;
+        
+        try {
+            String logPath = FloatTimeService.getLogFilePath(this);
+            java.io.File file = new java.io.File(logPath);
+            
+            if (!file.exists()) {
+                logText.setText("暂无日志");
+                return;
+            }
+            
+            BufferedReader reader = new BufferedReader(new InputStreamReader(new java.io.FileInputStream(file)));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            int lineCount = 0;
+            
+            // 只读取最后20行
+            java.util.List<String> lines = new java.util.ArrayList<>();
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
+            }
+            reader.close();
+            
+            int start = Math.max(0, lines.size() - 20);
+            for (int i = start; i < lines.size(); i++) {
+                sb.append(lines.get(i)).append("\n");
+            }
+            
+            logText.setText(sb.toString());
+            
+        } catch (Exception e) {
+            logText.setText("读取日志失败: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }
