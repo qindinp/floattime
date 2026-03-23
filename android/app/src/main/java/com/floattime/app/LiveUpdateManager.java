@@ -120,14 +120,15 @@ public class LiveUpdateManager {
             .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setContentTitle("时间同步中")
             .setContentText("正在从 " + sourceName + " 获取时间...")
-            .setOngoing(true)
+            .setOngoing(false)  // ✅ 改为 false - 小米超级岛识别关键!
+            .setAutoCancel(true)  // ✅ 允许用户关闭
+            .setPriority(NotificationCompat.PRIORITY_MAX)  // ✅ 最高优先级
             .setProgress(0, 0, true)  // 不确定进度
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
         
         // Android 16+ Live Updates 配置
         if (isLiveUpdateSupported()) {
-            // 启用实时更新
             builder.setShowWhen(true);
             builder.setUsesChronometer(false);
         }
