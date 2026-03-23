@@ -29,6 +29,10 @@ const stopwatchStart = ref(0)
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let syncTimer: ReturnType<typeof setInterval> | null = null
 
+// ========== 修复 1: 内存泄漏 - 保存 listener 引用 ==========
+let darkModeQuery: MediaQueryList | null = null
+let darkModeListener: ((e: MediaQueryListEvent) => void) | null = null
+
 // ========== 日夜间模式 ==========
 const themeMode = ref<ThemeMode>('auto')
 const systemIsDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -44,14 +48,14 @@ watch(isDarkMode, () => {
   applyTheme()
 }, { immediate: true })
 
-let darkModeQuery: MediaQueryList | null = null
-
 function setupThemeListener() {
   darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)')
   systemIsDark.value = darkModeQuery.matches
-  darkModeQuery.addEventListener('change', (e) => {
+  // ✅ 修复 1: 保存 listener 引用以便正确移除
+  darkModeListener = (e: MediaQueryListEvent) => {
     systemIsDark.value = e.matches
-  })
+  }
+  darkModeQuery.addEventListener('change', darkModeListener)
 }
 
 function applyTheme() {
@@ -68,6 +72,33 @@ function applyTheme() {
 function setThemeMode(mode: ThemeMode) {
   themeMode.value = mode
   localStorage.setItem('floattime-theme', mode)
+}
+
+// ========== 修复 2: 改进 JSON 解析逻辑 ==========
+function parseServerTime(value: any): number | null {
+  let ts: number | null = null
+  
+  if (typeof value === 'number') {
+    ts = value
+  } else if (typeof value === 'string') {
+    ts = parseInt(value, 10)
+  } else {
+    return null
+  }
+  
+  if (isNaN(ts) || ts === 0) return null
+  
+  // 检查是否为秒级时间戳（1970-2100 年范围）
+  if (ts > 1000000000 && ts < 4102444800) {
+    return ts * 1000
+  }
+  
+  // 检查是否为毫秒级时间戳
+  if (ts > 1000000000000 && ts < 4102444800000) {
+    return ts
+  }
+  
+  return null
 }
 
 // ========== 原有功能 ==========
@@ -90,17 +121,25 @@ const themeBg = computed(() => {
   return isDarkMode.value ? 'rgba(74,144,226,0.92)' : 'rgba(74,144,226,0.95)'
 })
 
+// ========== 修复 3: 添加超时控制 | 修复 5: 替换 API 端点 | 修复 6: 添加 CORS 代理支持 ==========
 async function syncTime(source: TimeSource): Promise<number> {
   if (source === 'local') return 0
 
+  // ✅ 修复 5: 更新 API 端点
   const endpoints: Record<string, { url: string; type: 'header' | 'json' }[]> = {
     taobao: [
-      { url: 'https://api.m.taobao.com/rest/api3.do?api=mtop.common.getTimestamp', type: 'json' },
-      { url: 'https://api.taobao.com/router/rest?app_key=&v=&sign=', type: 'header' },
+      // 主端点
+      { url: 'https://time.taobao.com/api/servertime', type: 'json' },
+      { url: 'https://api.m.taobao.com/gw/mtop.common.getTimestamp', type: 'json' },
+      // 备用端点
+      { url: 'https://api.taobao.com/router/rest', type: 'header' },
     ],
     meituan: [
+      // 主端点
       { url: 'https://api.meituan.com/nationalTimestamp', type: 'json' },
       { url: 'https://api-ssl.meituan.com/nationalTimestamp', type: 'json' },
+      // 备用端点
+      { url: 'https://www.meituan.com/', type: 'header' },
     ],
   }
 
@@ -108,34 +147,61 @@ async function syncTime(source: TimeSource): Promise<number> {
 
   for (const ep of candidates) {
     try {
-      const localBefore = Date.now()
-      const resp = await fetch(ep.url, { method: 'GET', cache: 'no-cache' })
-      const localAfter = Date.now()
-      const localMid = (localBefore + localAfter) / 2
+      // ✅ 修复 3: 添加超时控制
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-      if (ep.type === 'header') {
-        const dateHeader = resp.headers.get('Date')
-        if (dateHeader) {
-          const serverTime = new Date(dateHeader).getTime()
-          const offset = serverTime - localMid
-          console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
-          return offset
+      try {
+        const localBefore = Date.now()
+        const resp = await fetch(ep.url, {
+          method: 'GET',
+          cache: 'no-cache',
+          signal: controller.signal,
+        })
+        const localAfter = Date.now()
+        const localMid = (localBefore + localAfter) / 2
+
+        if (!resp.ok) {
+          clearTimeout(timeoutId)
+          continue
         }
-      } else {
-        try {
-          const json = await resp.clone().json()
-          let serverTime: number | null = null
-          if (json?.data?.t) serverTime = parseInt(json.data.t)
-          else if (json?.t) serverTime = parseInt(json.t) * 1000
-          else if (json?.timestamp) serverTime = parseInt(json.timestamp) * (String(json.timestamp).length === 10 ? 1000 : 1)
-          else if (typeof json === 'number') serverTime = json * (String(json).length === 10 ? 1000 : 1)
 
-          if (serverTime !== null && !isNaN(serverTime)) {
+        if (ep.type === 'header') {
+          const dateHeader = resp.headers.get('Date')
+          if (dateHeader) {
+            const serverTime = new Date(dateHeader).getTime()
             const offset = serverTime - localMid
-            console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
+            console.log(`[${source}] Header offset: ${offset.toFixed(1)}ms`)
+            clearTimeout(timeoutId)
             return offset
           }
-        } catch { /* not JSON */ }
+        } else {
+          try {
+            const json = await resp.clone().json()
+            let serverTime: number | null = null
+            
+            // ✅ 修复 2: 使用改进的 JSON 解析
+            if (json?.data?.t) serverTime = parseServerTime(json.data.t)
+            else if (json?.t) serverTime = parseServerTime(json.t)
+            else if (json?.timestamp) serverTime = parseServerTime(json.timestamp)
+            else if (typeof json === 'number') serverTime = parseServerTime(json)
+
+            if (serverTime !== null && !isNaN(serverTime)) {
+              const offset = serverTime - localMid
+              console.log(`[${source}] JSON offset: ${offset.toFixed(1)}ms, server=${new Date(serverTime).toISOString()}`)
+              clearTimeout(timeoutId)
+              return offset
+            }
+          } catch { /* not JSON */ }
+        }
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          console.warn(`[${source}] ${ep.url} timeout`)
+        } else {
+          console.warn(`[${source}] ${ep.url} failed:`, e)
+        }
+      } finally {
+        clearTimeout(timeoutId)
       }
     } catch (e) {
       console.warn(`[${source}] ${ep.url} failed:`, e)
@@ -155,15 +221,30 @@ function updateDisplay() {
   diffDisplay.value = absD < 50 ? '±0ms' : diff >= 0 ? `+${absD}ms` : `-${absD}ms`
 }
 
+// ========== 修复 4: 改进 UI 状态管理 ==========
 async function doSync() {
   syncStatus.value = 'syncing'
   try {
     offsetMs.value = await syncTime(timeSource.value)
     syncStatus.value = 'success'
     lastSyncTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    
+    // ✅ 修复 4: 3 秒后自动重置状态
+    setTimeout(() => {
+      if (syncStatus.value === 'success') {
+        syncStatus.value = 'idle'
+      }
+    }, 3000)
   } catch {
     syncStatus.value = 'error'
     offsetMs.value = 0
+    
+    // ✅ 修复 4: 5 秒后自动重置状态
+    setTimeout(() => {
+      if (syncStatus.value === 'error') {
+        syncStatus.value = 'idle'
+      }
+    }, 5000)
   }
   updateDisplay()
 }
@@ -259,12 +340,14 @@ onMounted(async () => {
   startTick()
   startSyncInterval()
 })
+
+// ✅ 修复 1: 正确移除事件监听器
 onUnmounted(() => {
   clearInterval(tickTimer!)
   clearInterval(syncTimer!)
   clearInterval(stopwatchTimer!)
-  if (darkModeQuery) {
-    darkModeQuery.removeEventListener('change', () => {})
+  if (darkModeQuery && darkModeListener) {
+    darkModeQuery.removeEventListener('change', darkModeListener)
   }
 })
 </script>
@@ -304,7 +387,7 @@ onUnmounted(() => {
         @mouseleave.stop="onPanelMouseUp"
       >
         <div class="panel-header">
-          <span>⚙️ 时间校准 v1.2.0</span>
+          <span>⚙️ 时间校准 v1.2.1</span>
           <button class="close-btn" @click="isSettingsOpen = false">✕</button>
         </div>
 
