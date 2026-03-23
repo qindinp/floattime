@@ -74,6 +74,9 @@ public class LiveUpdateManager {
             channel.enableLights(true);
             channel.setLightColor(0xFFFF6B35);  // 橙色
             
+            // ✅ 小米特定: 绕过勿扰模式
+            channel.setBypassDnd(true);
+            
             // Android 16+ 启用 Live Updates
             if (Build.VERSION.SDK_INT >= 36) {
                 channel.setAllowBubbles(true);
@@ -131,6 +134,15 @@ public class LiveUpdateManager {
         if (isLiveUpdateSupported()) {
             builder.setShowWhen(true);
             builder.setUsesChronometer(false);
+            
+            // ✅ 小米特定: 浮窗配置
+            builder.setBubbleMetadata(
+                new NotificationCompat.BubbleMetadata.Builder()
+                    .setDesiredHeight(600)
+                    .setAutoExpandBubble(true)
+                    .setSuppressNotification(false)
+                    .build()
+            );
         }
         
         notify(NOTIFICATION_ID_TIME_SYNC, builder.build());
