@@ -86,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
         timezoneText = findViewById(R.id.timezoneText);
         currentTimeText = findViewById(R.id.currentTimeText);
         versionText = findViewById(R.id.versionText);
-        logText = findViewById(R.id.logText);
         themeGroup = findViewById(R.id.themeGroup);
         themeAuto = findViewById(R.id.themeAuto);
         themeLight = findViewById(R.id.themeLight);
