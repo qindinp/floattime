@@ -39,6 +39,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 悬浮时间前台服务 - 支持日夜间模式、圆角磨砂效果、Android 16 Live Updates
@@ -81,7 +82,7 @@ public class FloatTimeService extends Service {
     private Runnable mTimeRunnable;
     private String mTimeSource = "taobao";
     private long mOffsetMs = 0;
-    private boolean mIsSyncing = false;
+    private final AtomicBoolean mIsSyncing = new AtomicBoolean(false);  // ✅ 修复: 使用 AtomicBoolean
     private String mCurrentTimeStr = "";
     private String mCurrentMillisStr = "";
     
@@ -520,16 +521,20 @@ public class FloatTimeService extends Service {
     }
 
     private void syncTime() {
-        if (mIsSyncing) return;
+        // ✅ 修复: 使用 compareAndSet 确保线程安全
+        if (!mIsSyncing.compareAndSet(false, true)) {
+            return;
+        }
+        
         if ("local".equals(mTimeSource)) {
             mOffsetMs = 0;
             mPrefs.edit().putLong(KEY_OFFSET_MS, 0).apply();
             updateSyncStatus(2);
             log("Local time mode, offset=0");
+            mIsSyncing.set(false);
             return;
         }
         
-        mIsSyncing = true;
         updateSyncStatus(0);
         log("Syncing time from: " + mTimeSource);
         
@@ -555,36 +560,37 @@ public class FloatTimeService extends Service {
                 
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
-                    BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(conn.getInputStream()));
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
-                    reader.close();
-                    
-                    long localAfter = System.currentTimeMillis();
-                    long localMid = (localBefore + localAfter) / 2;
-                    
-                    long serverTime = parseServerTime(response.toString());
-                    if (serverTime > 0) {
-                        mOffsetMs = serverTime - localMid;
-                        mPrefs.edit().putLong(KEY_OFFSET_MS, mOffsetMs).apply();
-                        updateSyncStatus(1);
-                        log("Time synced: offset=" + mOffsetMs + "ms");
-                        
-                        // 显示 Live Update - 同步成功
-                        if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
-                            mLiveUpdateManager.showTimeSyncSuccess(mTimeSource, mOffsetMs);
+                    // ✅ 修复: 使用 try-with-resources 自动关闭资源
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream()))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
                         }
-                    } else {
-                        updateSyncStatus(-1);
-                        log("Failed to parse server time");
                         
-                        // 显示 Live Update - 同步失败
-                        if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
-                            mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
+                        long localAfter = System.currentTimeMillis();
+                        long localMid = (localBefore + localAfter) / 2;
+                        
+                        long serverTime = parseServerTime(response.toString());
+                        if (serverTime > 0) {
+                            mOffsetMs = serverTime - localMid;
+                            mPrefs.edit().putLong(KEY_OFFSET_MS, mOffsetMs).apply();
+                            updateSyncStatus(1);
+                            log("Time synced: offset=" + mOffsetMs + "ms");
+                            
+                            // 显示 Live Update - 同步成功
+                            if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                                mLiveUpdateManager.showTimeSyncSuccess(mTimeSource, mOffsetMs);
+                            }
+                        } else {
+                            updateSyncStatus(-1);
+                            log("Failed to parse server time");
+                            
+                            // 显示 Live Update - 同步失败
+                            if (mLiveUpdateManager != null && mLiveUpdateManager.canPostLiveUpdates()) {
+                                mLiveUpdateManager.showTimeSyncFailed(mTimeSource);
+                            }
                         }
                     }
                 } else {
@@ -608,7 +614,7 @@ public class FloatTimeService extends Service {
                 }
             } finally {
                 if (conn != null) conn.disconnect();
-                mIsSyncing = false;
+                mIsSyncing.set(false);  // ✅ 确保重置
             }
         }).start();
     }
@@ -632,28 +638,38 @@ public class FloatTimeService extends Service {
         try {
             JSONObject json = new JSONObject(response);
             
+            long timestamp = 0;
+            
+            // 尝试 data.t 字段
             if (json.has("data")) {
                 JSONObject data = json.getJSONObject("data");
                 if (data.has("t")) {
                     String t = data.getString("t");
-                    return Long.parseLong(t);
+                    timestamp = Long.parseLong(t);
                 }
             }
             
-            if (json.has("t")) {
-                long t = json.getLong("t");
-                return t < 10000000000L ? t * 1000 : t;
+            // 尝试 t 字段
+            if (timestamp == 0 && json.has("t")) {
+                timestamp = json.getLong("t");
             }
             
-            if (json.has("timestamp")) {
-                long ts = json.getLong("timestamp");
-                return ts < 10000000000L ? ts * 1000 : ts;
+            // 尝试 timestamp 字段
+            if (timestamp == 0 && json.has("timestamp")) {
+                timestamp = json.getLong("timestamp");
             }
-            if (json.has("time")) {
-                long t = json.getLong("time");
-                return t < 10000000000L ? t * 1000 : t;
+            
+            // ✅ 统一处理时间单位
+            if (timestamp > 0) {
+                // 如果是秒级时间戳（< 10000000000），转换为毫秒
+                if (timestamp < 10000000000L) {
+                    return timestamp * 1000;
+                } else {
+                    return timestamp;
+                }
             }
         } catch (Exception e) {
+            log("Failed to parse server time: " + e.getMessage());
             e.printStackTrace();
         }
         return 0;

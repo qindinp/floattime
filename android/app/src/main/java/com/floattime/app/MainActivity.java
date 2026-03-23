@@ -75,18 +75,13 @@ public class MainActivity extends AppCompatActivity {
         // ✅ 第一步: 启用暗夜模式支持 - 跟随系统设置
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         
+        // ✅ 第二步: 初始化 SharedPreferences
         mPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         
-        // ✅ 第二步: 首次启动时主动请求权限
-        if (!mPrefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) {
-            requestInitialPermissions();
-            mPrefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply();
-        }
-        
-        // 初始化 Live Update 管理器
+        // ✅ 第三步: 初始化 Live Update 管理器
         mLiveUpdateManager = new LiveUpdateManager(this);
         
-        // 注册悬浮窗权限回调
+        // ✅ 第四步: 注册悬浮窗权限回调
         overlayPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
@@ -100,6 +95,7 @@ public class MainActivity extends AppCompatActivity {
             }
         );
         
+        // ✅ 第五步: 初始化 UI (必须在权限请求之前)
         setContentView(R.layout.activity_main);
         
         startBtn = findViewById(R.id.startBtn);
@@ -132,6 +128,12 @@ public class MainActivity extends AppCompatActivity {
         startMainClock();
         
         updateStatus();
+        
+        // ✅ 第六步: 最后请求权限 (UI 已准备好)
+        if (!mPrefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) {
+            requestInitialPermissions();
+            mPrefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply();
+        }
         
         Log.d(TAG, "MainActivity onCreate - Dark mode enabled, permissions checked");
     }
@@ -218,9 +220,9 @@ public class MainActivity extends AppCompatActivity {
         if (currentTimeText != null) currentTimeText.setTextColor(textColor);
         if (versionText != null) versionText.setTextColor(textColor);
         
-        // 更新按钮样式
-        updateButtonStyle(startBtn, isNight);
-        updateButtonStyle(stopBtn, isNight);
+        // ✅ 修复: 添加 null 检查
+        if (startBtn != null) updateButtonStyle(startBtn, isNight);
+        if (stopBtn != null) updateButtonStyle(stopBtn, isNight);
     }
 
     private void updateButtonStyle(Button btn, boolean isNight) {
