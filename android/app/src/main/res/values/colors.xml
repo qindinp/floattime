@@ -6,4 +6,7 @@
     <color name="colorPrimary">#FF5000</color>
     <color name="colorPrimaryDark">#CC4000</color>
     <color name="colorAccent">#FF5000</color>
+    
+    <!-- ✅ 日间模式背景色 -->
+    <color name="backgroundColor">#FFFFFF</color>
 </resources>
