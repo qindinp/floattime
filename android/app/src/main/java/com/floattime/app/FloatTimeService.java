@@ -52,6 +52,7 @@ public class FloatTimeService extends Service {
 
     private NotificationManager mNotificationManager;
     private LiveUpdateManager mLiveUpdateManager;
+    private SuperIslandManager mSuperIslandManager;
 
     private SharedPreferences mPrefs;
     private Handler mHandler;
@@ -74,6 +75,9 @@ public class FloatTimeService extends Service {
         mPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         
         mLiveUpdateManager = new LiveUpdateManager(this);
+        mSuperIslandManager = new SuperIslandManager(this);
+        
+        log("Super Island supported: " + mSuperIslandManager.isSupported());
         
         loadPreferences();
         createNotificationChannel();
@@ -214,6 +218,15 @@ public class FloatTimeService extends Service {
             try {
                 // 更新前台通知
                 mNotificationManager.notify(NOTIFICATION_ID, createNotification());
+                
+                // 更新超级岛
+                if (mSuperIslandManager != null && mSuperIslandManager.isSupported()) {
+                    mSuperIslandManager.update(
+                        mCurrentTimeStr,
+                        "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length())),
+                        getSourceDisplayName()
+                    );
+                }
             } catch (Exception e) {
                 log("updateNotification error: " + e.getMessage());
             }
@@ -348,6 +361,10 @@ public class FloatTimeService extends Service {
         
         if (mLiveUpdateManager != null) {
             mLiveUpdateManager.clearAll();
+        }
+        
+        if (mSuperIslandManager != null) {
+            mSuperIslandManager.destroy();
         }
         
         if (mHandler != null && mTimeRunnable != null) {
