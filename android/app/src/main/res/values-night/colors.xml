@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 暗夜模式颜色 -->
+    <color name="colorPrimary">#1F1F1F</color>
+    <color name="colorPrimaryDark">#121212</color>
+    <color name="colorAccent">#FF5000</color>
+    
+    <!-- 文本颜色 -->
+    <color name="textColorPrimary">#FFFFFF</color>
+    <color name="textColorSecondary">#B3B3B3</color>
+    
+    <!-- 背景颜色 -->
+    <color name="backgroundColor">#121212</color>
+    <color name="surfaceColor">#1F1F1F</color>
+    
+    <!-- 通知颜色 -->
+    <color name="notificationBackground">#1F1F1F</color>
+    <color name="notificationText">#FFFFFF</color>
+    
+    <!-- 分割线颜色 -->
+    <color name="dividerColor">#2F2F2F</color>
+    
+    <!-- 边框颜色 -->
+    <color name="borderColor">#3F3F3F</color>
+</resources>
