@@ -305,8 +305,8 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 检查是否支持 Live Updates
      */
-    public boolean isLiveUpdateSupported() {
-        return mLiveUpdateManager != null && mLiveUpdateManager.isLiveUpdateSupported();
+    public boolean isSupported() {
+        return mLiveUpdateManager != null && mLiveUpdateManager.isSupported();
     }
     
     /**

@@ -351,7 +351,7 @@ public class LiveUpdateManager {
                         .addAction(new Notification.Action.Builder(
                                 android.R.drawable.ic_media_pause, "暂停", pausePI).build())
                         .addAction(new Notification.Action.Builder(
-                                android.R.drawable.ic_media_stop, "停止", stopPI).build())
+                                android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPI).build())
                         .setStyle(ps)
                         .build();
 
@@ -369,7 +369,7 @@ public class LiveUpdateManager {
                         .setContentText(text)
                         .setOngoing(true)
                         .addAction(android.R.drawable.ic_media_pause, "暂停", pausePI)
-                        .addAction(android.R.drawable.ic_media_stop, "停止", stopPI)
+                        .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPI)
                         .build());
     }
 
