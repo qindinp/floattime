@@ -115,24 +115,36 @@ public class FloatTimeService extends Service {
         try {
             loadPreferences();
             createNotificationChannel();
-            startForeground(NOTIFICATION_ID, createNotification());
             
+            // ✅ 先初始化变量
             mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
             mNotificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             
-            // ✅ 检查是否启用悬浮窗
-            boolean enableFloatingWindow = mPrefs.getBoolean("float_window_enabled", true);
-            if (mWindowManager != null && enableFloatingWindow) {
-                createFloatingView();
+            // ✅ 创建通知（先于悬浮窗）
+            try {
+                startForeground(NOTIFICATION_ID, createNotification());
+            } catch (Exception e) {
+                log("Failed to create notification: " + e.getMessage());
             }
             
+            // ✅ 启动时钟和同步（即使悬浮窗失败也要运行）
             startClock();
             syncTime();
             
+            // ✅ 检查是否启用悬浮窗，最后创建
+            boolean enableFloatingWindow = mPrefs.getBoolean("float_window_enabled", true);
+            if (mWindowManager != null && enableFloatingWindow) {
+                try {
+                    createFloatingView();
+                } catch (Exception e) {
+                    log("Failed to create floating view: " + e.getMessage());
+                }
+            }
+            
         } catch (Exception e) {
-            log("onCreate error: " + e.getMessage());
+            log("onCreate critical error: " + e.getMessage());
             e.printStackTrace();
-            stopSelf();
+            // ✅ 即使失败也要继续运行，不停止服务
         }
     }
 
@@ -234,49 +246,74 @@ public class FloatTimeService extends Service {
     }
 
     private Notification createNotification() {
-        RemoteViews collapsedView = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
-        RemoteViews expandedView = new RemoteViews(getPackageName(), R.layout.notification_expanded);
-        
-        String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
-        collapsedView.setTextViewText(R.id.notification_time, timeStr);
-        expandedView.setTextViewText(R.id.notification_time, timeStr + (mCurrentMillisStr.isEmpty() ? "" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()))));
-        
-        String sourceText = getSourceDisplayName();
-        collapsedView.setTextViewText(R.id.notification_source, sourceText);
-        expandedView.setTextViewText(R.id.notification_source, sourceText);
-        
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-        
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            // ✅ 移除 setContentTitle 和 setContentText，避免与自定义视图冲突
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setOngoing(true)
-            .setShowWhen(false)
-            .setOnlyAlertOnce(true)
-            // ✅ 只使用自定义视图
-            .setCustomContentView(collapsedView)
-            .setCustomBigContentView(expandedView);
-        
-        if (Build.VERSION.SDK_INT >= 36) {
-            builder.setStyle(new NotificationCompat.DecoratedCustomViewStyle());
-            builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+        try {
+            RemoteViews collapsedView = new RemoteViews(getPackageName(), R.layout.notification_collapsed);
+            RemoteViews expandedView = new RemoteViews(getPackageName(), R.layout.notification_expanded);
+            
+            // ✅ 确保时间字符串不为空
+            String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
+            String millisStr = mCurrentMillisStr.isEmpty() ? ".000" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()));
+            
+            collapsedView.setTextViewText(R.id.notification_time, timeStr);
+            expandedView.setTextViewText(R.id.notification_time, timeStr + millisStr);
+            
+            String sourceText = getSourceDisplayName();
+            collapsedView.setTextViewText(R.id.notification_source, sourceText);
+            expandedView.setTextViewText(R.id.notification_source, sourceText);
+            
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+            
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentIntent(pendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_LOW)  // ✅ 改为 LOW，减少系统干预
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setOngoing(true)
+                .setShowWhen(false)
+                .setOnlyAlertOnce(true)
+                .setCustomContentView(collapsedView)
+                .setCustomBigContentView(expandedView);
+            
+            // Android 12 及以下使用 DecoratedCustomViewStyle
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                builder.setStyle(new NotificationCompat.DecoratedCustomViewStyle());
+            }
+            
+            // Android 12+ 灵动岛/超级岛支持
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+            }
+            
+            return builder.build();
+        } catch (Exception e) {
+            log("createNotification error: " + e.getMessage());
+            e.printStackTrace();
+            // 返回一个简单的备用通知
+            return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle("悬浮时间")
+                .setContentText("服务运行中")
+                .setOngoing(true)
+                .build();
         }
-        
-        return builder.build();
     }
 
     private void updateNotification() {
-        if (mNotificationManager != null && !mCurrentTimeStr.isEmpty()) {
+        if (mNotificationManager == null) {
+            mNotificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        }
+        if (mNotificationManager != null) {
             try {
-                mNotificationManager.notify(NOTIFICATION_ID, createNotification());
+                Notification notification = createNotification();
+                if (notification != null) {
+                    mNotificationManager.notify(NOTIFICATION_ID, notification);
+                }
             } catch (Exception e) {
-                e.printStackTrace();
+                log("updateNotification error: " + e.getMessage());
             }
         }
     }
