@@ -205,10 +205,10 @@ public class MainActivity extends AppCompatActivity {
             isNight = (mode == 2);
         }
         
-        // 更新界面样式
-        int bgColor = isNight ? 0xFF1A1A2E : 0xFFFFFFFF;
-        int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;
-        int cardColor = isNight ? 0xFF2A2A3E : 0xFFF5F5F5;
+        // ✅ 改进: 使用更柔和的暗夜模式颜色
+        int bgColor = isNight ? 0xFF1F1F1F : 0xFFFFFFFF;      // 深灰背景
+        int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;    // 白色文本
+        int accentColor = isNight ? 0xFFFF6B35 : 0xFFFF5000;  // 橙色强调
         
         View root = findViewById(android.R.id.content);
         if (root != null) {
@@ -221,20 +221,22 @@ public class MainActivity extends AppCompatActivity {
         if (versionText != null) versionText.setTextColor(textColor);
         
         // ✅ 修复: 添加 null 检查
-        if (startBtn != null) updateButtonStyle(startBtn, isNight);
-        if (stopBtn != null) updateButtonStyle(stopBtn, isNight);
+        if (startBtn != null) updateButtonStyle(startBtn, isNight, accentColor);
+        if (stopBtn != null) updateButtonStyle(stopBtn, isNight, accentColor);
     }
 
-    private void updateButtonStyle(Button btn, boolean isNight) {
+    private void updateButtonStyle(Button btn, boolean isNight, int accentColor) {
         if (btn == null) return;
         
-        int bgColor = isNight ? 0xFF3A3A5E : 0xFFE0E0E0;
-        int textColor = isNight ? 0xFFFFFFFF : 0xFF1A1A2E;
+        // ✅ 改进: 使用强调色
+        int bgColor = isNight ? 0xFF2A2A2A : 0xFFE0E0E0;
+        int textColor = isNight ? accentColor : 0xFF1A1A2E;
         
         GradientDrawable drawable = new GradientDrawable();
         drawable.setShape(GradientDrawable.RECTANGLE);
         drawable.setCornerRadius(dpToPx(12));
         drawable.setColor(bgColor);
+        drawable.setStroke(dpToPx(2), textColor);  // ✅ 添加边框
         
         btn.setBackground(drawable);
         btn.setTextColor(textColor);

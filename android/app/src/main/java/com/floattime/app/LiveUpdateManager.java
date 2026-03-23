@@ -60,11 +60,19 @@ public class LiveUpdateManager {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID_LIVE_UPDATE,
                 CHANNEL_NAME_LIVE_UPDATE,
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_MAX  // ✅ 改为 MAX，让小米超级岛识别
             );
             channel.setDescription(CHANNEL_DESC_LIVE_UPDATE);
-            channel.setShowBadge(false);
+            channel.setShowBadge(true);  // ✅ 改为 true，让小米超级岛识别
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            
+            // ✅ 添加声音和振动，让小米超级岛识别
+            channel.enableVibration(true);
+            channel.setVibrationPattern(new long[]{0, 250, 250, 250});
+            
+            // ✅ 添加灯光效果
+            channel.enableLights(true);
+            channel.setLightColor(0xFFFF6B35);  // 橙色
             
             // Android 16+ 启用 Live Updates
             if (Build.VERSION.SDK_INT >= 36) {
