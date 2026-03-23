@@ -411,7 +411,7 @@ public class LiveUpdateManager {
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // FOREGROUND_SERVICE_IMMEDIATE = 1
-                nativeBuilder.setForegroundBehavior(1);
+                nativeBuilder.setForegroundServiceBehavior(1);
             }
 
             // 调用 setProgressStyle
