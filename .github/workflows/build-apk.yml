@@ -49,6 +49,9 @@ jobs:
       - name: Build with Vite
         run: npx vite build
 
+      - name: Sync Capacitor
+        run: npx cap sync android
+
       - name: Commit dist files
         run: |
           git config --local user.email "action@github.com"
@@ -56,9 +59,6 @@ jobs:
           git add dist/
           git diff --staged --quiet || git commit -m "chore: update dist files [skip ci]"
           git push
-
-      - name: Sync Capacitor
-        run: npx cap sync android
 
       - name: Grant gradlew permission
         run: chmod +x android/gradlew
