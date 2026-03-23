@@ -8,7 +8,7 @@ android {
         minSdkVersion 24
         targetSdkVersion 36
         versionCode 3
-        versionName "1.2.1"
+        versionName "1.2.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         
         // 只构建 64 位版本

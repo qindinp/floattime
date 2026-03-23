@@ -1,5 +1,0 @@
-fix: 将 FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 移到 job 级别
-
-- 在 job 级别添加环境变量
-- 为每个 step 添加环境变量确保生效
-- 解决 Node.js 20 弃用警告

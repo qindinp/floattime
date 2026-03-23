@@ -1,7 +1,7 @@
 {
   "appId": "com.floattime.app",
   "appName": "FloatTime",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

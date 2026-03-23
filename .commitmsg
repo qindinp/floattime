@@ -1,9 +1,0 @@
-refactor: 组件拆分 - 将 App.vue 拆分为模块化结构
-
-- 拆分 App.vue (28KB -> 5.8KB，减少79%)
-- 新增组件: FloatBall, SettingsPanel, Stopwatch
-- 新增 composables: useTheme, useTimeSync, useDrag, useStopwatch
-- 新增工具函数: time.ts, storage.ts, config.ts
-- 新增类型定义: types/index.ts
-- 添加项目文档: PROJECT_OVERVIEW.md, REFACTOR_REPORT.md
-- 构建验证通过
