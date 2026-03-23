@@ -10,32 +10,32 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import rikka.shizuku.Shizuku;
 
 /**
  * Shizuku 管理器
- * 
+ *
  * 用于绕过小米超级岛白名单限制
- * 
- * 使用方法：
- * 1. 用户安装 Shizuku 应用
- * 2. 应用请求 Shizuku 权限
- * 3. 使用 Shizuku 执行命令添加应用到超级岛白名单
+ *
+ * 修复: execShizukuCommand 之前只是 Runtime.exec()，未走 Shizuku binder。
+ * 现在使用 Shizuku.newProcess() 通过 binder 执行特权命令。
  */
 public class ShizukuManager {
 
     private static final String TAG = "ShizukuManager";
-    
-    // Shizuku 包名
+
     private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
-    
-    // 超级岛白名单命令 (需要 Shizuku Root 权限)
-    private static final String SUPER_ISLAND_ALLOW_CMD = 
-        "settings put secure super_float_app_list %s";
+    private static final String SETTING_SUPER_FLOAT_LIST = "super_float_app_list";
+    private static final int SHIZUKU_PERMISSION_REQUEST_CODE = 10086;
 
     private final Context mContext;
     private final ExecutorService mExecutor;
-    
-    private boolean mIsShizukuAvailable = false;
+
+    private boolean mIsShizukuInstalled = false;
+    private boolean mIsShizukuRunning = false;
+    private boolean mIsShizukuPermissionGranted = false;
     private boolean mIsRootAvailable = false;
 
     public interface OnResultListener {
@@ -50,12 +50,31 @@ public class ShizukuManager {
     }
 
     /**
-     * 检查 Shizuku 状态
+     * 检查 Shizuku + Root 状态
      */
     public void checkShizukuStatus() {
-        mIsShizukuAvailable = isPackageInstalled(SHIZUKU_PACKAGE);
-        
-        // 检查是否有 root
+        mIsShizukuInstalled = isPackageInstalled(SHIZUKU_PACKAGE);
+
+        // Shizuku 是否运行中
+        if (mIsShizukuInstalled) {
+            try {
+                mIsShizukuRunning = Shizuku.ping();
+            } catch (Exception e) {
+                mIsShizukuRunning = false;
+            }
+        }
+
+        // Shizuku 权限
+        if (mIsShizukuRunning) {
+            try {
+                mIsShizukuPermissionGranted = Shizuku.checkSelfPermission()
+                        == PackageManager.PERMISSION_GRANTED;
+            } catch (Exception e) {
+                mIsShizukuPermissionGranted = false;
+            }
+        }
+
+        // Root
         try {
             Process process = Runtime.getRuntime().exec("su -c id");
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -65,147 +84,131 @@ public class ShizukuManager {
         } catch (Exception e) {
             mIsRootAvailable = false;
         }
-        
-        Log.d(TAG, "Shizuku available: " + mIsShizukuAvailable + ", Root available: " + mIsRootAvailable);
+
+        Log.d(TAG, "Status: shizuku_installed=" + mIsShizukuInstalled
+                + ", running=" + mIsShizukuRunning
+                + ", permission=" + mIsShizukuPermissionGranted
+                + ", root=" + mIsRootAvailable);
     }
 
-    /**
-     * 是否支持超级岛
-     */
+    public boolean isXiaomiDevice() {
+        String mfr = Build.MANUFACTURER.toLowerCase();
+        String brand = Build.BRAND.toLowerCase();
+        return mfr.contains("xiaomi") || mfr.contains("redmi") || mfr.contains("poco")
+                || brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco");
+    }
+
     public boolean isSuperIslandSupported() {
-        // 需要 Android 15+ 和 HyperOS
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             return false;
         }
-        
-        // 检查是否为小米设备
-        return isXiaomiDevice() || mIsShizukuAvailable || mIsRootAvailable;
+        return isXiaomiDevice() && (mIsShizukuPermissionGranted || mIsRootAvailable);
     }
 
-    /**
-     * 是否为小米设备
-     */
-    public boolean isXiaomiDevice() {
-        return Build.MANUFACTURER.toLowerCase().contains("xiaomi") ||
-               Build.BRAND.toLowerCase().contains("xiaomi") ||
-               Build.MANUFACTURER.toLowerCase().contains("redmi") ||
-               Build.BRAND.toLowerCase().contains("redmi") ||
-               Build.MANUFACTURER.toLowerCase().contains("poco") ||
-               Build.BRAND.toLowerCase().contains("poco");
-    }
-
-    /**
-     * 是否有 Shizuku
-     */
     public boolean hasShizuku() {
-        return mIsShizukuAvailable;
+        return mIsShizukuInstalled && mIsShizukuRunning;
     }
 
-    /**
-     * 是否有 Root
-     */
+    public boolean hasShizukuPermission() {
+        return mIsShizukuPermissionGranted;
+    }
+
     public boolean hasRoot() {
         return mIsRootAvailable;
     }
 
     /**
+     * 请求 Shizuku 权限（需在 Activity 中调用）
+     */
+    public void requestShizukuPermission() {
+        if (!mIsShizukuRunning) return;
+        try {
+            Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE);
+        } catch (Exception e) {
+            Log.e(TAG, "Request permission failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * 启用超级岛白名单
-     * 使用 Shizuku 或 Root 执行命令
+     *
+     * 优先 Shizuku binder → 回退 Root su
      */
     public void enableSuperIsland(OnResultListener listener) {
         mExecutor.execute(() -> {
-            try {
-                String packageName = mContext.getPackageName();
-                
-                if (mIsRootAvailable) {
-                    // 使用 Root
-                    String cmd = String.format(SUPER_ISLAND_ALLOW_CMD, packageName);
-                    execCommand(cmd);
-                    Log.d(TAG, "Enabled Super Island via Root");
-                    if (listener != null) {
-                        listener.onSuccess("已通过 Root 启用超级岛支持");
+            String packageName = mContext.getPackageName();
+            String cmd = "settings put secure " + SETTING_SUPER_FLOAT_LIST + " " + packageName;
+
+            // ── 优先 Shizuku ──
+            if (mIsShizukuPermissionGranted) {
+                try {
+                    boolean ok = execViaShizuku(cmd);
+                    if (ok) {
+                        Log.d(TAG, "Enabled via Shizuku");
+                        notify(listener, true, "已通过 Shizuku 启用超级岛支持");
+                        return;
                     }
-                } else if (mIsShizukuAvailable) {
-                    // 使用 Shizuku
-                    // 注意：Shizuku 需要特殊权限才能执行某些命令
-                    // 这里只是尝试基本的包添加
-                    try {
-                        // 尝试通过 Shizuku API 执行命令
-                        execShizukuCommand("pm grant " + packageName + " android.permission.WRITE_SECURE_SETTINGS");
-                        Log.d(TAG, "Enabled Super Island via Shizuku");
-                        if (listener != null) {
-                            listener.onSuccess("已通过 Shizuku 启用超级岛支持");
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Shizuku command failed: " + e.getMessage());
-                        if (listener != null) {
-                            listener.onFailure("Shizuku 权限不足，请确保 Shizuku 已授权 Root 权限");
-                        }
-                    }
-                } else {
-                    if (listener != null) {
-                        listener.onFailure("需要 Root 或 Shizuku 才能启用超级岛支持");
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to enable Super Island: " + e.getMessage());
-                if (listener != null) {
-                    listener.onFailure("启用失败: " + e.getMessage());
+                } catch (Exception e) {
+                    Log.e(TAG, "Shizuku failed: " + e.getMessage());
                 }
             }
+
+            // ── 回退 Root ──
+            if (mIsRootAvailable) {
+                try {
+                    Process p = Runtime.getRuntime().exec("su -c " + cmd);
+                    int exit = p.waitFor();
+                    if (exit == 0) {
+                        Log.d(TAG, "Enabled via Root");
+                        notify(listener, true, "已通过 Root 启用超级岛支持");
+                        return;
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Root failed: " + e.getMessage());
+                }
+            }
+
+            notify(listener, false, "需要 Shizuku 授权或 Root 权限");
         });
     }
 
     /**
-     * 检查包是否安装
+     * ✅ 核心修复: 通过 Shizuku binder 执行命令
+     *
+     * 之前: Runtime.exec(cmd) → 没有权限，执行失败
+     * 现在: Shizuku.newProcess() → 通过 binder 在 Shizuku 进程中执行
      */
-    private boolean isPackageInstalled(String packageName) {
-        try {
-            mContext.getPackageManager().getPackageInfo(packageName, 0);
-            return true;
-        } catch (PackageManager.NameNotFoundException e) {
+    private boolean execViaShizuku(String command) throws Exception {
+        Log.d(TAG, "Executing via Shizuku: " + command);
+
+        Process process = Shizuku.newProcess(
+                new String[]{"sh", "-c", command},
+                null, null
+        );
+
+        boolean finished = process.waitFor(10, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroy();
+            Log.e(TAG, "Shizuku command timeout");
             return false;
         }
-    }
 
-    /**
-     * 执行 Shell 命令 (Root)
-     */
-    private void execCommand(String cmd) throws Exception {
-        Process process = Runtime.getRuntime().exec("su -c " + cmd);
-        process.waitFor();
-        
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-        String error = reader.readLine();
-        if (error != null && !error.isEmpty()) {
-            Log.w(TAG, "Command error: " + error);
+        int exitCode = process.exitValue();
+        if (exitCode != 0) {
+            BufferedReader errReader = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream()));
+            String errLine = errReader.readLine();
+            errReader.close();
+            Log.w(TAG, "Shizuku stderr: " + errLine);
         }
-        reader.close();
+
+        return exitCode == 0;
     }
 
     /**
-     * 执行 Shizuku 命令
+     * 打开 Shizuku 应用
      */
-    private void execShizukuCommand(String cmd) throws Exception {
-        // Shizuku 需要通过 binder 调用
-        // 这里简化处理，实际需要使用 Shizuku API
-        android.os.Process myUid = android.os.Process.myUid();
-        Log.d(TAG, "Current UID: " + myUid);
-        
-        // 尝试通过 Runtime.exec 执行（Shizuku 需要特殊配置）
-        try {
-            Process process = Runtime.getRuntime().exec(cmd);
-            process.waitFor();
-        } catch (Exception e) {
-            Log.e(TAG, "execShizukuCommand failed: " + e.getMessage());
-            throw e;
-        }
-    }
-
-    /**
-     * 打开 Shizuku 应用设置页面
-     */
-    public void openShizukuSettings() {
+    public void openShizuku() {
         try {
             Intent intent = mContext.getPackageManager().getLaunchIntentForPackage(SHIZUKU_PACKAGE);
             if (intent != null) {
@@ -213,21 +216,37 @@ public class ShizukuManager {
                 mContext.startActivity(intent);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Failed to open Shizuku: " + e.getMessage());
+            Log.e(TAG, "Open Shizuku failed: " + e.getMessage());
         }
     }
 
-    /**
-     * 获取状态描述
-     */
     public String getStatusDescription() {
-        if (hasRoot()) {
-            return "已获取 Root 权限，可以启用超级岛支持";
-        } else if (hasShizuku()) {
-            return "已安装 Shizuku，可以启用超级岛支持";
+        if (mIsRootAvailable) {
+            return "已获取 Root 权限，可以启用超级岛";
+        } else if (mIsShizukuPermissionGranted) {
+            return "Shizuku 已授权，可以启用超级岛";
+        } else if (mIsShizukuRunning) {
+            return "Shizuku 运行中，请授权";
+        } else if (mIsShizukuInstalled) {
+            return "Shizuku 已安装，请启动";
         } else {
-            return "未检测到 Root 或 Shizuku";
+            return "请安装 Shizuku 或获取 Root";
         }
+    }
+
+    private boolean isPackageInstalled(String pkg) {
+        try {
+            mContext.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    private void notify(OnResultListener l, boolean success, String msg) {
+        if (l == null) return;
+        if (success) l.onSuccess(msg);
+        else l.onFailure(msg);
     }
 
     public void destroy() {

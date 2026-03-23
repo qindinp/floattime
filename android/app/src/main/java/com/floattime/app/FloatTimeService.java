@@ -129,29 +129,11 @@ public class FloatTimeService extends Service {
             String timeStr = mCurrentTimeStr.isEmpty() ? "--:--:--" : mCurrentTimeStr;
             String millisStr = mCurrentMillisStr.isEmpty() ? ".000" : "." + mCurrentMillisStr.substring(0, Math.min(3, mCurrentMillisStr.length()));
             
-            // 使用 LiveUpdateManager 创建通知
-            Notification notification = mLiveUpdateManager.createClockNotification(
+            // ✅ 修复: 使用 LiveUpdateManager 返回的通知（包含小米 Live Update extras）
+            // 之前这里创建了通知但丢弃了返回值，直接造了个新的——导致超级岛 extras 失效
+            return mLiveUpdateManager.createClockNotification(
                 this, timeStr, millisStr, getSourceDisplayName(), mIsNightMode
             );
-            
-            // 确保使用正确的前台服务类型
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle(timeStr + millisStr)
-                .setContentText(getSourceDisplayName())
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setOnlyAlertOnce(true)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-
-            // Android 12+ 前台服务行为
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
-            }
-
-            return builder.build();
             
         } catch (Exception e) {
             log("createNotification error: " + e.getMessage());
