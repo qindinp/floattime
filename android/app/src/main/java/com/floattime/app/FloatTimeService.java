@@ -358,23 +358,26 @@ public class FloatTimeService extends Service {
             
             updateFloatingStyle();
             
-            int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
-                : WindowManager.LayoutParams.TYPE_PHONE;
+            // ✅ 使用 TYPE_APPLICATION_OVERLAY（需要 SYSTEM_ALERT_WINDOW 权限）
+            int layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+            
+            int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
             
             mFloatParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE 
-                    | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                flags,
                 PixelFormat.TRANSLUCENT
             );
             
             mFloatParams.gravity = Gravity.TOP | Gravity.START;
             mFloatParams.x = mPrefs.getInt(KEY_FLOAT_X, 50);
             mFloatParams.y = mPrefs.getInt(KEY_FLOAT_Y, 200);
+            mFloatParams.packageName = getPackageName();
             
             setupTouchListener();
             
