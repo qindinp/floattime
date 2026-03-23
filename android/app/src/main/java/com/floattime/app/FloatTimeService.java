@@ -7,11 +7,15 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -27,6 +31,8 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
@@ -35,13 +41,22 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 悬浮时间前台服务 - 带毫秒显示
+ * 悬浮时间前台服务 - 支持日夜间模式、圆角磨砂效果
  */
 public class FloatTimeService extends Service {
+
+    private static final String TAG = "FloatTimeService";
+    private static final String PREFS_NAME = "FloatTimePrefs";
+    private static final String KEY_THEME_MODE = "theme_mode";
+    private static final String KEY_OFFSET_MS = "offset_ms";
+    private static final String KEY_TIME_SOURCE = "time_source";
+    private static final String KEY_FLOAT_X = "float_x";
+    private static final String KEY_FLOAT_Y = "float_y";
 
     private static final String CHANNEL_ID = "float_time_channel";
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final int NOTIFICATION_ID = 20240320;
+    private static final int LOG_FILE_MAX_LINES = 100;
 
     private static final AtomicBoolean sIsRunning = new AtomicBoolean(false);
     public static boolean isRunning() {
@@ -66,14 +81,22 @@ public class FloatTimeService extends Service {
     private boolean mIsSyncing = false;
     private String mCurrentTimeStr = "";
     private String mCurrentMillisStr = "";
+    
+    private int mThemeMode = 0; // 0=auto, 1=light, 2=dark
+    private boolean mIsNightMode = false;
+    private SharedPreferences mPrefs;
 
     @Override
     public void onCreate() {
         super.onCreate();
         sIsRunning.set(true);
         mHandler = new Handler(Looper.getMainLooper());
+        mPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        
+        log("FloatTimeService onCreate");
         
         try {
+            loadPreferences();
             createNotificationChannel();
             startForeground(NOTIFICATION_ID, createNotification());
             
@@ -88,14 +111,75 @@ public class FloatTimeService extends Service {
             syncTime();
             
         } catch (Exception e) {
+            log("onCreate error: " + e.getMessage());
             e.printStackTrace();
             stopSelf();
         }
     }
 
+    private void loadPreferences() {
+        mThemeMode = mPrefs.getInt(KEY_THEME_MODE, 0);
+        mOffsetMs = mPrefs.getLong(KEY_OFFSET_MS, 0);
+        mTimeSource = mPrefs.getString(KEY_TIME_SOURCE, "taobao");
+        
+        // 根据主题模式确定是否夜间
+        updateNightMode();
+        log("Loaded preferences: themeMode=" + mThemeMode + ", source=" + mTimeSource + ", isNight=" + mIsNightMode);
+    }
+
+    private void updateNightMode() {
+        if (mThemeMode == 0) {
+            // 自动模式：跟随系统时间
+            int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            mIsNightMode = (hour >= 19 || hour < 7);
+        } else {
+            mIsNightMode = (mThemeMode == 2);
+        }
+        log("Theme updated: mode=" + mThemeMode + ", isNight=" + mIsNightMode);
+    }
+
+    public void setThemeMode(int mode) {
+        mThemeMode = mode;
+        mPrefs.edit().putInt(KEY_THEME_MODE, mode).apply();
+        updateNightMode();
+        updateFloatingStyle();
+        log("Theme mode changed to: " + mode);
+    }
+
+    public int getThemeMode() {
+        return mThemeMode;
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        log("onStartCommand called");
+        
+        if (intent != null) {
+            String action = intent.getAction();
+            if ("CHANGE_THEME".equals(action)) {
+                int mode = intent.getIntExtra("mode", 0);
+                setThemeMode(mode);
+            } else if ("CHANGE_SOURCE".equals(action)) {
+                String source = intent.getStringExtra("source");
+                if (source != null) {
+                    mTimeSource = source;
+                    mPrefs.edit().putString(KEY_TIME_SOURCE, source).apply();
+                    updateSourceDisplay();
+                    syncTime();
+                    log("Time source changed to: " + source);
+                }
+            }
+        }
+        
         return START_STICKY;
+    }
+
+    private void updateSourceDisplay() {
+        String sourceLabel = getSourceShortName();
+        if (mSourceText != null) {
+            mSourceText.setText(sourceLabel);
+        }
+        updateFloatingStyle();
     }
 
     private void createNotificationChannel() {
@@ -131,7 +215,7 @@ public class FloatTimeService extends Service {
         
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("悬浮时间")
+            .setContentTitle("悬浮时间 v1.2.0")
             .setContentText(timeStr)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -169,7 +253,7 @@ public class FloatTimeService extends Service {
         mSourceText = mFloatView.findViewById(R.id.sourceText);
         mSyncDot = mFloatView.findViewById(R.id.syncDot);
         
-        updateTheme();
+        updateFloatingStyle();
         
         int layoutType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
             ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY 
@@ -186,11 +270,73 @@ public class FloatTimeService extends Service {
         );
         
         mFloatParams.gravity = Gravity.TOP | Gravity.START;
-        mFloatParams.x = 50;
-        mFloatParams.y = 200;
+        mFloatParams.x = mPrefs.getInt(KEY_FLOAT_X, 50);
+        mFloatParams.y = mPrefs.getInt(KEY_FLOAT_Y, 200);
         
         setupTouchListener();
         mWindowManager.addView(mFloatView, mFloatParams);
+    }
+
+    private void updateFloatingStyle() {
+        if (mFloatView == null) return;
+        
+        try {
+            // 根据日间/夜间模式设置颜色
+            int bgColor;
+            int textColor = Color.WHITE;
+            float cornerRadius = dpToPx(18); // 18dp 圆角
+            
+            if (mIsNightMode) {
+                // 夜间模式
+                bgColor = 0xF01A1A2E; // 深色半透明背景
+                if ("taobao".equals(mTimeSource)) {
+                    bgColor = 0xF0E04500; // 深色淘宝橙
+                } else if ("meituan".equals(mTimeSource)) {
+                    bgColor = 0xF0CC8800; // 深色美团黄
+                } else {
+                    bgColor = 0xF01A3A6E; // 深色蓝色
+                }
+            } else {
+                // 日间模式
+                if ("taobao".equals(mTimeSource)) {
+                    bgColor = 0xF2FF5722; // 淘宝橙色
+                } else if ("meituan".equals(mTimeSource)) {
+                    bgColor = 0xF2FFC107; // 美团黄色
+                } else {
+                    bgColor = 0xF22196F3; // 蓝色
+                }
+            }
+            
+            // 创建圆角矩形背景（带磨砂效果）
+            GradientDrawable drawable = new GradientDrawable();
+            drawable.setShape(GradientDrawable.RECTANGLE);
+            drawable.setCornerRadius(cornerRadius);
+            drawable.setColor(bgColor);
+            drawable.setAlpha(242); // 约95%透明度
+            
+            // 设置阴影/elevation
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mFloatView.setElevation(dpToPx(8));
+            }
+            
+            mFloatView.setBackground(drawable);
+            
+            // 设置文字颜色
+            if (mTimeText != null) mTimeText.setTextColor(textColor);
+            if (mMillisText != null) mMillisText.setTextColor(textColor);
+            if (mDateText != null) mDateText.setTextColor(Color.argb(200, 255, 255, 255));
+            if (mSourceText != null) mSourceText.setTextColor(textColor);
+            
+            log("Floating style updated: bgColor=" + Integer.toHexString(bgColor) + ", isNight=" + mIsNightMode);
+            
+        } catch (Exception e) {
+            log("updateFloatingStyle error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private int dpToPx(float dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
     private void setupTouchListener() {
@@ -199,6 +345,7 @@ public class FloatTimeService extends Service {
         final float[] touchX = new float[1];
         final float[] touchY = new float[1];
         final boolean[] moved = {false};
+        final long[] tapTime = {0};
         
         mFloatView.setOnTouchListener((v, event) -> {
             try {
@@ -209,6 +356,7 @@ public class FloatTimeService extends Service {
                         lastX[0] = mFloatParams.x;
                         lastY[0] = mFloatParams.y;
                         moved[0] = false;
+                        tapTime[0] = System.currentTimeMillis();
                         return true;
                         
                     case MotionEvent.ACTION_MOVE:
@@ -227,12 +375,23 @@ public class FloatTimeService extends Service {
                         return true;
                         
                     case MotionEvent.ACTION_UP:
-                        if (!moved[0]) {
+                        long duration = System.currentTimeMillis() - tapTime[0];
+                        if (!moved[0] && duration < 300) {
+                            // 短按切换时间源
                             changeTimeSource();
+                        } else if (!moved[0]) {
+                            // 长按打开设置
+                            openSettings();
                         }
+                        // 保存位置
+                        mPrefs.edit()
+                            .putInt(KEY_FLOAT_X, mFloatParams.x)
+                            .putInt(KEY_FLOAT_Y, mFloatParams.y)
+                            .apply();
                         return true;
                 }
             } catch (Exception e) {
+                log("Touch listener error: " + e.getMessage());
                 e.printStackTrace();
             }
             return false;
@@ -248,15 +407,24 @@ public class FloatTimeService extends Service {
             mTimeSource = "taobao";
         }
         
-        String sourceLabel = getSourceShortName();
-        if (mSourceText != null) {
-            mSourceText.setText(sourceLabel);
-        }
-        
-        updateTheme();
+        mPrefs.edit().putString(KEY_TIME_SOURCE, mTimeSource).apply();
+        updateSourceDisplay();
         mOffsetMs = 0;
         syncTime();
         updateNotification();
+        
+        log("Source changed to: " + mTimeSource);
+    }
+
+    private void openSettings() {
+        try {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+            log("Opening settings");
+        } catch (Exception e) {
+            log("openSettings error: " + e.getMessage());
+        }
     }
 
     private String getSourceShortName() {
@@ -269,36 +437,18 @@ public class FloatTimeService extends Service {
                "meituan".equals(mTimeSource) ? "美团时间" : "本地时间";
     }
 
-    private void updateTheme() {
-        try {
-            int bgColor;
-            if ("taobao".equals(mTimeSource)) {
-                bgColor = 0xFFFF5A3F;
-            } else if ("meituan".equals(mTimeSource)) {
-                bgColor = 0xFFFFB800;
-            } else {
-                bgColor = 0xFF2196F3;
-            }
-            
-            if (mFloatView != null) {
-                mFloatView.setBackgroundColor(bgColor);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
     private void startClock() {
         mTimeRunnable = new Runnable() {
             @Override
             public void run() {
                 updateTime();
                 if (mHandler != null) {
-                    mHandler.postDelayed(this, 50); // 50ms刷新，确保毫秒流畅
+                    mHandler.postDelayed(this, 50);
                 }
             }
         };
         mHandler.post(mTimeRunnable);
+        log("Clock started");
     }
 
     private void updateTime() {
@@ -328,7 +478,19 @@ public class FloatTimeService extends Service {
                 updateNotification();
             }
             
+            // 检查是否需要切换日夜间模式（自动模式）
+            if (mThemeMode == 0) {
+                boolean newNight = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) >= 19 || 
+                                   java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) < 7;
+                if (newNight != mIsNightMode) {
+                    mIsNightMode = newNight;
+                    updateFloatingStyle();
+                    log("Auto theme switched: isNight=" + mIsNightMode);
+                }
+            }
+            
         } catch (Exception e) {
+            log("updateTime error: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -337,12 +499,15 @@ public class FloatTimeService extends Service {
         if (mIsSyncing) return;
         if ("local".equals(mTimeSource)) {
             mOffsetMs = 0;
+            mPrefs.edit().putLong(KEY_OFFSET_MS, 0).apply();
             updateSyncStatus(2);
+            log("Local time mode, offset=0");
             return;
         }
         
         mIsSyncing = true;
         updateSyncStatus(0);
+        log("Syncing time from: " + mTimeSource);
         
         new Thread(() -> {
             HttpURLConnection conn = null;
@@ -376,15 +541,20 @@ public class FloatTimeService extends Service {
                     long serverTime = parseServerTime(response.toString());
                     if (serverTime > 0) {
                         mOffsetMs = serverTime - localMid;
+                        mPrefs.edit().putLong(KEY_OFFSET_MS, mOffsetMs).apply();
                         updateSyncStatus(1);
+                        log("Time synced: offset=" + mOffsetMs + "ms");
                     } else {
                         updateSyncStatus(-1);
+                        log("Failed to parse server time");
                     }
                 } else {
                     updateSyncStatus(-1);
+                    log("HTTP error: " + responseCode);
                 }
                 
             } catch (Exception e) {
+                log("syncTime error: " + e.getMessage());
                 e.printStackTrace();
                 updateSyncStatus(-1);
             } finally {
@@ -399,10 +569,10 @@ public class FloatTimeService extends Service {
             if (mSyncDot != null) {
                 int color;
                 switch (status) {
-                    case 0: color = 0xFF2196F3; break;
-                    case 1: color = 0xFF4CAF50; break;
-                    case 2: color = 0xFF9E9E9E; break;
-                    default: color = 0xFFF44336;
+                    case 0: color = 0xFF2196F3; break;  // 同步中-蓝色
+                    case 1: color = 0xFF4CAF50; break; // 成功-绿色
+                    case 2: color = 0xFF9E9E9E; break; // 本地模式-灰色
+                    default: color = 0xFFF44336;      // 失败-红色
                 }
                 mSyncDot.setBackgroundColor(color);
             }
@@ -440,8 +610,57 @@ public class FloatTimeService extends Service {
         return 0;
     }
 
+    private void log(String message) {
+        Log.d(TAG, message);
+        saveLogToFile(message);
+    }
+
+    private void saveLogToFile(String message) {
+        try {
+            String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(new Date());
+            String logLine = timestamp + " | " + message + "\n";
+            
+            String filename = getFilesDir() + "/floattime.log";
+            java.io.File file = new java.io.File(filename);
+            
+            // 读取现有日志
+            StringBuilder existingLogs = new StringBuilder();
+            if (file.exists()) {
+                BufferedReader reader = new BufferedReader(new java.io.FileReader(file));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    existingLogs.append(line).append("\n");
+                }
+                reader.close();
+                
+                // 限制日志行数
+                String[] lines = existingLogs.toString().split("\n");
+                if (lines.length > LOG_FILE_MAX_LINES) {
+                    existingLogs = new StringBuilder();
+                    for (int i = lines.length - LOG_FILE_MAX_LINES; i < lines.length; i++) {
+                        existingLogs.append(lines[i]).append("\n");
+                    }
+                }
+            }
+            
+            // 写入新日志
+            PrintWriter writer = new PrintWriter(new java.io.FileWriter(file));
+            writer.print(existingLogs.toString());
+            writer.print(logLine);
+            writer.close();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static String getLogFilePath(Context context) {
+        return context.getFilesDir() + "/floattime.log";
+    }
+
     @Override
     public void onDestroy() {
+        log("onDestroy called");
         sIsRunning.set(false);
         
         if (mHandler != null && mTimeRunnable != null) {
