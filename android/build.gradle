@@ -21,6 +21,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // JitPack for HyperNotification and Shizuku
+        maven { url 'https://jitpack.io' }
     }
 }
 
