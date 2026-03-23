@@ -4,23 +4,23 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Person;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
-import android.graphics.drawable.Icon;
 import android.os.Build;
+import android.os.Bundle;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import com.xzakota.hyper.notification.focus.FocusNotification;
+import com.xzakota.hyper.notification.focus.FocusTemplate;
+
 /**
  * 超级岛管理器
  * 
- * 实现小米超级岛支持：
- * 1. 使用 Bubble API 显示超级岛
- * 2. 支持 MIUI HyperOS 3.0+
- * 3. 与 ShizukuManager 配合绕过白名单
+ * 使用 HyperNotification API 实现小米超级岛支持
+ * 
+ * 参考：https://github.com/xzakota/HyperNotification
  */
 public class SuperIslandManager {
 
@@ -33,7 +33,6 @@ public class SuperIslandManager {
 
     private final Context mContext;
     private final NotificationManager mNotifMgr;
-    private final ShizukuManager mShizukuManager;
 
     private boolean mIsEnabled = false;
     private String mCurrentTime = "--:--:--";
@@ -43,12 +42,10 @@ public class SuperIslandManager {
     public SuperIslandManager(Context context) {
         mContext = context.getApplicationContext();
         mNotifMgr = (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
-        mShizukuManager = new ShizukuManager(context);
         createNotificationChannel();
         
         Log.d(TAG, "SuperIslandManager initialized | SDK: " + Build.VERSION.SDK_INT);
         Log.d(TAG, "Device: " + Build.MANUFACTURER + " " + Build.MODEL);
-        Log.d(TAG, "Shizuku status: " + mShizukuManager.getStatusDescription());
     }
 
     /**
@@ -67,11 +64,6 @@ public class SuperIslandManager {
             channel.enableVibration(false);
             channel.setSound(null, null);
             
-            // 启用气泡通知
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                channel.setAllowBubbles(true);
-            }
-            
             mNotifMgr.createNotificationChannel(channel);
         }
     }
@@ -80,22 +72,22 @@ public class SuperIslandManager {
      * 是否支持超级岛
      */
     public boolean isSupported() {
-        // Android 12+ 支持 Bubble API
+        // 需要 Android 12+ (S = 31)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return false;
         }
         
-        // 小米设备检查
-        boolean isXiaomi = mShizukuManager.isXiaomiDevice();
+        // 小米/红米/POCO 设备
+        boolean isXiaomi = Build.MANUFACTURER.toLowerCase().contains("xiaomi") ||
+               Build.BRAND.toLowerCase().contains("xiaomi") ||
+               Build.MANUFACTURER.toLowerCase().contains("redmi") ||
+               Build.BRAND.toLowerCase().contains("redmi") ||
+               Build.MANUFACTURER.toLowerCase().contains("poco") ||
+               Build.BRAND.toLowerCase().contains("poco");
         
-        // 有 Shizuku 或 Root
-        boolean hasPrivileges = mShizukuManager.hasShizuku() || mShizukuManager.hasRoot();
+        Log.d(TAG, "isSupported: Xiaomi=" + isXiaomi + ", SDK=" + Build.VERSION.SDK_INT);
         
-        Log.d(TAG, "isSupported: Xiaomi=" + isXiaomi + ", Privileges=" + hasPrivileges);
-        
-        // 如果是小米设备且有权限，支持超级岛
-        // 否则回退到普通 Bubble 通知
-        return true; // 始终返回 true，让通知显示
+        return true; // 让系统决定是否显示
     }
 
     /**
@@ -106,24 +98,13 @@ public class SuperIslandManager {
     }
 
     /**
-     * 获取 Shizuku 状态
-     */
-    public ShizukuManager getShizukuManager() {
-        return mShizukuManager;
-    }
-
-    /**
      * 启用超级岛
      */
     public void enable(OnResultListener listener) {
-        if (mShizukuManager.hasRoot() || mShizukuManager.hasShizuku()) {
-            mShizukuManager.enableSuperIsland(listener);
-        } else {
-            if (listener != null) {
-                listener.onFailure("需要 Root 或 Shizuku 才能启用超级岛");
-            }
-        }
         mIsEnabled = true;
+        if (listener != null) {
+            listener.onSuccess("超级岛已启用");
+        }
     }
 
     /**
@@ -166,60 +147,79 @@ public class SuperIslandManager {
      * 构建超级岛通知
      */
     private Notification buildSuperIslandNotification() {
-        // 创建指向 MainActivity 的 Intent
-        Intent mainIntent = new Intent(mContext, MainActivity.class);
-        mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent mainPendingIntent = PendingIntent.getActivity(
-            mContext, 0, mainIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+        try {
+            // 创建指向 MainActivity 的 Intent
+            Intent mainIntent = new Intent(mContext, MainActivity.class);
+            mainIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            PendingIntent mainPendingIntent = PendingIntent.getActivity(
+                mContext, 0, mainIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
 
-        // 创建图标
-        Icon icon = Icon.createWithResource(mContext, android.R.drawable.ic_lock_idle_alarm);
+            // ✅ 使用 HyperNotification API 构建超级岛数据
+            Bundle extras = FocusNotification.buildV2(template -> {
+                // 启用浮动显示（超级岛）
+                template.setEnableFloat(true);
+                template.setTicker(mCurrentTime + mCurrentMillis);
+                
+                // 基础信息（展开前显示）
+                template.baseInfo(info -> {
+                    info.setType(1);
+                    info.setTitle(mCurrentTime + mCurrentMillis);
+                    info.setContent(mCurrentSource);
+                });
+                
+                // 提示信息（展开后显示）
+                template.hintInfo(info -> {
+                    info.setType(1);
+                    info.setTitle(mCurrentSource);
+                    info.setContent("实时校准时间");
+                });
+            });
 
-        // 创建 BubbleMetadata
-        android.app.BubbleMetadata.Builder bubbleBuilder = new android.app.BubbleMetadata.Builder(
-            mainPendingIntent,
-            icon
-        );
-        
-        // 设置 Bubble 属性
-        bubbleBuilder.setDesiredHeight(400);
-        bubbleBuilder.setAutoExpandBubble(false);
-        bubbleBuilder.setSuppressNotification(false);
-        
-        android.app.BubbleMetadata bubbleMetadata = bubbleBuilder.build();
+            // ✅ 构建通知，使用 HyperNotification 的 extras
+            Notification.Builder builder;
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder = new Notification.Builder(mContext, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(mCurrentTime + mCurrentMillis)
+                    .setContentText(mCurrentSource)
+                    .setContentIntent(mainPendingIntent)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setCategory(Notification.CATEGORY_STATUS)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .setTicker(mCurrentTime + mCurrentMillis);
+                
+                // 添加超级岛数据
+                if (extras != null) {
+                    builder.addExtras(extras);
+                }
+            } else {
+                builder = new Notification.Builder(mContext, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(mCurrentTime + mCurrentMillis)
+                    .setContentText(mCurrentSource)
+                    .setContentIntent(mainPendingIntent)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC);
+                
+                if (extras != null) {
+                    builder.addExtras(extras);
+                }
+            }
 
-        // 构建通知
-        Notification.Builder builder;
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder = new Notification.Builder(mContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle(mCurrentSource)
-                .setContentText(mCurrentTime + mCurrentMillis)
-                .setContentIntent(mainPendingIntent)
-                .setBubbleMetadata(bubbleMetadata)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setOnlyAlertOnce(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setCategory(Notification.CATEGORY_STATUS)
-                .setPriority(Notification.PRIORITY_HIGH);
-        } else {
-            // Android 12 回退
-            builder = new Notification.Builder(mContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle(mCurrentTime + mCurrentMillis)
-                .setContentText(mCurrentSource)
-                .setContentIntent(mainPendingIntent)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setOnlyAlertOnce(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC);
+            return builder.build();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "buildSuperIslandNotification error: " + e.getMessage());
+            return null;
         }
-
-        return builder.build();
     }
 
     /**
@@ -258,9 +258,6 @@ public class SuperIslandManager {
      */
     public void destroy() {
         hide();
-        if (mShizukuManager != null) {
-            mShizukuManager.destroy();
-        }
     }
 
     /**

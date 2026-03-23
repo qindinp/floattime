@@ -67,8 +67,8 @@ dependencies {
     implementation "androidx.activity:activity:1.9.0"
     implementation "androidx.coordinatorlayout:coordinatorlayout:1.2.0"
     implementation "androidx.core:core-splashscreen:1.0.1"
-    // ✅ Shizuku for Super Island support
-    implementation "dev.rikka.shizuku:api:13.1.0"
+    // ✅ HyperNotification for Xiaomi Super Island
+    implementation "com.xzakota.hyper.notification:focus-api:1.0.1"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:4.13.2"
     androidTestImplementation "androidx.test.ext:junit:1.2.1"
