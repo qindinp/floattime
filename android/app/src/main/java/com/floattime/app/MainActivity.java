@@ -28,8 +28,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -50,7 +48,6 @@ public class MainActivity extends AppCompatActivity {
     private TextView timezoneText;
     private TextView currentTimeText;
     private TextView versionText;
-    private TextView logText;
     private RadioGroup themeGroup;
     private RadioButton themeAuto;
     private RadioButton themeLight;
@@ -399,43 +396,6 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         } catch (Exception e) {
             // 忽略
-        }
-    }
-
-    private void loadLog() {
-        if (logText == null) return;
-        
-        try {
-            String logPath = FloatTimeService.getLogFilePath(this);
-            java.io.File file = new java.io.File(logPath);
-            
-            if (!file.exists()) {
-                logText.setText("暂无日志");
-                return;
-            }
-            
-            BufferedReader reader = new BufferedReader(new InputStreamReader(new java.io.FileInputStream(file)));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            int lineCount = 0;
-            
-            // 只读取最后20行
-            java.util.List<String> lines = new java.util.ArrayList<>();
-            while ((line = reader.readLine()) != null) {
-                lines.add(line);
-            }
-            reader.close();
-            
-            int start = Math.max(0, lines.size() - 20);
-            for (int i = start; i < lines.size(); i++) {
-                sb.append(lines.get(i)).append("\n");
-            }
-            
-            logText.setText(sb.toString());
-            
-        } catch (Exception e) {
-            logText.setText("读取日志失败: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 }
