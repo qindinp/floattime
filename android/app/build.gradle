@@ -73,9 +73,10 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Shizuku API — 通过 Shizuku UserService 执行特权操作
+    // Shizuku API — 通过 Shizuku 获取特权操作能力
+    // 注意：provider 包含 aidl variant，需要显式指定使用 release 版本
     implementation 'dev.rikka.shizuku:api:13.1.5'
-    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5@aar'
 }
 
 apply from: 'capacitor.build.gradle'
