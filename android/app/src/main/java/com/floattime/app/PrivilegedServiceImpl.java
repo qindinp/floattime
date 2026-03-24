@@ -46,7 +46,7 @@ public class PrivilegedServiceImpl extends IPrivilegedService.Stub {
                     IBinder binder = (IBinder) smClass.getMethod("getService", String.class)
                             .invoke(null, "connectivity");
 
-                    Class<?> stubClass = Class.forName("android.net.IConnectivityManager\$Stub");
+                    Class<?> stubClass = Class.forName("android.net.IConnectivityManager$Stub");
                     Object cm = stubClass.getMethod("asInterface", IBinder.class)
                             .invoke(null, binder);
 
