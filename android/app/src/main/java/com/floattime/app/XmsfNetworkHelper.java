@@ -3,6 +3,7 @@ package com.floattime.app;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.IBinder;
 import android.util.Log;
 
 import rikka.shizuku.Shizuku;
@@ -74,7 +75,6 @@ public class XmsfNetworkHelper {
             if (sPrivilegedService == null) {
                 Log.w(TAG, "PrivilegedService not connected, attempting bind...");
                 bindService(context);
-                // 等待连接
                 Thread.sleep(500);
                 if (sPrivilegedService == null) {
                     Log.e(TAG, "Still not connected after bind attempt");
