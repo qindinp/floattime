@@ -11,9 +11,7 @@
     <!-- Android 16 (API 36) Live Updates 完整体验所需权限 -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
-    <!-- Shizuku 权限 — 用于绕过小米超级岛白名单 -->
-    <uses-permission android:name="moe.shizuku.api.permission.BIND_SHIZUKU_SERVICE" />
-    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+
 
     <application
         android:allowBackup="true"
@@ -70,14 +68,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Shizuku Provider — Shizuku API 必需 -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 
 </manifest>

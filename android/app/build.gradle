@@ -73,9 +73,7 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Shizuku API — 通过 Shizuku 获取特权 Shell 执行白名单绕过
-    implementation 'dev.rikka.shizuku:api:13.1.5'
-    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    // Shizuku 依赖已移除 — newProcess API 已废弃，超级岛需要 HyperCeiler/Root
 }
 
 apply from: 'capacitor.build.gradle'
