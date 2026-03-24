@@ -21,12 +21,10 @@ import rikka.sui.Sui;
 /**
  * Shizuku 超级岛白名单绕过助手
  *
- * 修复内容 (参考 Capsulyric/ShizukuUtil + PrivilegedServiceImpl):
- * 1. binder IPC 调用移至后台线程，防止主线程 ANR 卡死
- * 2. 添加 pingBinder() 检查，确保 binder 真正可用
- * 3. 使用 addBinderReceivedListenerSticky 处理已连接场景
- * 4. 超级岛检测改为多策略 (系统属性 + Settings.System + HyperOS 版本)
- * 5. 调用 Sui.init() 初始化 (Capsulyric 要求)
+ * 参考 Capsulyric 实现:
+ * 1. binder IPC 移至后台线程 (防 ANR)
+ * 2. XmsfNetworkHelper 断开 xmsf 网络绕过白名单
+ * 3. 多策略超级岛检测
  */
 public class ShizukuIslandHelper {
 
@@ -40,8 +38,8 @@ public class ShizukuIslandHelper {
 
     private volatile boolean mShizukuAvailable = false;
     private volatile boolean mShizukuPermissionGranted = false;
+    private volatile boolean mWhitelistBypassed = false;
 
-    // 后台线程处理 binder IPC，避免阻塞主线程 (参考 Capsulyric PrivilegedServiceImpl)
     private static final HandlerThread sWorkerThread;
     private static final Handler sWorkerHandler;
     static {
@@ -54,9 +52,8 @@ public class ShizukuIslandHelper {
 
     private final Shizuku.OnBinderReceivedListener mBinderReceivedListener =
             () -> {
-                Log.d(TAG, "Shizuku binder received, checking permission on worker thread...");
+                Log.d(TAG, "Shizuku binder received");
                 mShizukuAvailable = true;
-                // 在后台线程检查权限，避免阻塞主线程
                 checkPermissionAsync();
             };
 
@@ -72,6 +69,10 @@ public class ShizukuIslandHelper {
                 if (requestCode == SHIZUKU_PERMISSION_REQUEST_CODE) {
                     mShizukuPermissionGranted = grantResult == PackageManager.PERMISSION_GRANTED;
                     Log.d(TAG, "Permission result: " + mShizukuPermissionGranted);
+                    if (mShizukuPermissionGranted) {
+                        // 权限授予后自动尝试绕过
+                        tryBypassWhitelist();
+                    }
                 }
             };
 
@@ -81,7 +82,6 @@ public class ShizukuIslandHelper {
     }
 
     public void init() {
-        // 初始化 Sui (Capsulyric 要求)
         try {
             Sui.init(mPackageName);
         } catch (Exception e) {
@@ -97,7 +97,6 @@ public class ShizukuIslandHelper {
             return;
         }
 
-        // 安全检查 binder 状态 (非阻塞本地检查)
         if (Shizuku.getBinder() != null) {
             checkPermissionAsync();
         }
@@ -107,22 +106,17 @@ public class ShizukuIslandHelper {
         Shizuku.removeBinderReceivedListener(mBinderReceivedListener);
         Shizuku.removeBinderDeadListener(mBinderDeadListener);
         Shizuku.removeRequestPermissionResultListener(mPermissionListener);
+        XmsfNetworkHelper.unbindService();
     }
 
-    /**
-     * 异步检查 Shizuku 权限 — 后台线程 + 超时保护
-     * 参考 Capsulyric ShizukuUtil: callbackFlow + pingBinder + checkSelfPermission
-     */
     private void checkPermissionAsync() {
         sWorkerHandler.post(() -> {
             try {
-                // 1. 先 pingBinder 确认 binder 真正可用 (Capsulyric 模式)
                 if (!Shizuku.pingBinder()) {
-                    Log.w(TAG, "Shizuku binder not alive, skipping permission check");
+                    Log.w(TAG, "Shizuku binder not alive");
                     return;
                 }
 
-                // 2. 用 CountDownLatch + timeout 保护 IPC 调用
                 AtomicBoolean granted = new AtomicBoolean(false);
                 CountDownLatch latch = new CountDownLatch(1);
 
@@ -130,7 +124,7 @@ public class ShizukuIslandHelper {
                     try {
                         granted.set(Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED);
                     } catch (Exception e) {
-                        Log.e(TAG, "checkSelfPermission IPC failed: " + e.getMessage());
+                        Log.e(TAG, "checkSelfPermission failed: " + e.getMessage());
                     } finally {
                         latch.countDown();
                     }
@@ -138,12 +132,16 @@ public class ShizukuIslandHelper {
 
                 if (latch.await(IPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                     mShizukuPermissionGranted = granted.get();
-                    Log.d(TAG, "Permission check completed: " + mShizukuPermissionGranted);
+                    Log.d(TAG, "Permission: " + mShizukuPermissionGranted);
+                    if (mShizukuPermissionGranted) {
+                        // 绑定 UserService 并尝试绕过
+                        XmsfNetworkHelper.bindService(mContext);
+                        tryBypassWhitelist();
+                    }
                 } else {
-                    Log.w(TAG, "Permission check timed out after " + IPC_TIMEOUT_MS + "ms");
+                    Log.w(TAG, "Permission check timed out");
                 }
 
-                // 如果没有权限，异步请求 (回调在主线程)
                 if (!mShizukuPermissionGranted) {
                     mMainHandler.post(() -> {
                         try {
@@ -153,22 +151,63 @@ public class ShizukuIslandHelper {
                         }
                     });
                 }
-
             } catch (Exception e) {
                 Log.e(TAG, "checkPermissionAsync failed: " + e.getMessage());
             }
         });
     }
 
-    public boolean isShizukuAvailable() { return mShizukuAvailable; }
-    public boolean isPermissionGranted() { return mShizukuPermissionGranted; }
-    public boolean isWhitelistBypassed() { return false; }
-    public boolean isReady() { return mShizukuAvailable && mShizukuPermissionGranted; }
+    /**
+     * 尝试绕过白名单 — 通过 Shizuku 断开 xmsf 网络
+     * 参考 Capsulyric XmsfNetworkHelper
+     */
+    public void tryBypassWhitelist() {
+        if (!mShizukuAvailable || !mShizukuPermissionGranted) {
+            Log.w(TAG, "Shizuku not ready, skip bypass");
+            return;
+        }
+
+        sWorkerHandler.post(() -> {
+            try {
+                boolean result = XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, false);
+                mWhitelistBypassed = result;
+                Log.d(TAG, "Bypass attempt: " + (result ? "✅ 成功" : "❌ 失败"));
+            } catch (Exception e) {
+                Log.e(TAG, "Bypass failed: " + e.getMessage());
+                mWhitelistBypassed = false;
+            }
+        });
+    }
 
     /**
-     * 检查焦点通知权限 (通过 ContentProvider)
-     * 参考 Capsulyric RomUtils.hasFocusPermission()
+     * 在发送通知前临时断开 xmsf 网络
+     * 发送后自动恢复 (50ms)
      */
+    public void preNotificationHook() {
+        if (!mShizukuAvailable || !mShizukuPermissionGranted) return;
+
+        sWorkerHandler.post(() -> {
+            try {
+                XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, false);
+                // 50ms 后恢复网络
+                sWorkerHandler.postDelayed(() -> {
+                    try {
+                        XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, true);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Restore xmsf network failed: " + e.getMessage());
+                    }
+                }, 50);
+            } catch (Exception e) {
+                Log.e(TAG, "preNotificationHook failed: " + e.getMessage());
+            }
+        });
+    }
+
+    public boolean isShizukuAvailable() { return mShizukuAvailable; }
+    public boolean isPermissionGranted() { return mShizukuPermissionGranted; }
+    public boolean isWhitelistBypassed() { return mWhitelistBypassed; }
+    public boolean isReady() { return mShizukuAvailable && mShizukuPermissionGranted; }
+
     public boolean checkFocusPermission() {
         try {
             Uri uri = Uri.parse(FOCUS_PROVIDER_URI);
@@ -183,57 +222,37 @@ public class ShizukuIslandHelper {
     }
 
     /**
-     * 检测超级岛系统支持 — 多策略检测
-     *
-     * 策略1: persist.sys.feature.island == "true" (MIUI/HyperOS 原生检测)
-     * 策略2: Settings.System.notification_focus_protocol > 0 (焦点通知协议版本, Capsulyric 方法)
-     * 策略3: HyperOS 版本 >= OS3.0.0 (澎湃OS 3.0 必定支持)
-     *
-     * 参考 Capsulyric RomUtils.kt 的实现
+     * 多策略超级岛支持检测
      */
     public boolean isIslandSupported() {
-        // 策略1: 系统属性检测
+        // 策略1: 系统属性
         try {
             Class<?> clazz = Class.forName("android.os.SystemProperties");
             String val = (String) clazz.getMethod("get", String.class)
                     .invoke(null, "persist.sys.feature.island");
-            if ("true".equals(val)) {
-                return true;
-            }
+            if ("true".equals(val)) return true;
         } catch (Exception ignored) {}
 
-        // 策略2: Settings.System 中的焦点通知协议版本 (Capsulyric 使用)
+        // 策略2: Settings.System 焦点协议版本 (Capsulyric 方法)
         try {
-            int protocolVersion = android.provider.Settings.System.getInt(
+            int protocol = android.provider.Settings.System.getInt(
                     mContext.getContentResolver(), "notification_focus_protocol", 0);
-            if (protocolVersion > 0) {
-                return true;
-            }
+            if (protocol > 0) return true;
         } catch (Exception ignored) {}
 
-        // 策略3: HyperOS 版本检测 (OS3.x 必定支持超级岛)
+        // 策略3: HyperOS 版本
         try {
             Class<?> clazz = Class.forName("android.os.SystemProperties");
             String version = (String) clazz.getMethod("get", String.class)
                     .invoke(null, "ro.mi.os.version.incremental");
-            if (version != null && !version.isEmpty()) {
-                // 澎湃OS 3.0 = OS3.x = 必定支持超级岛
-                if (version.startsWith("OS3.") || version.startsWith("V816")) {
-                    return true;
-                }
-                // HyperOS 2.x 也有基础支持
-                if (version.startsWith("OS2.")) {
-                    return true;
-                }
+            if (version != null && (version.startsWith("OS3.") || version.startsWith("OS2."))) {
+                return true;
             }
         } catch (Exception ignored) {}
 
         return false;
     }
 
-    /**
-     * 获取焦点通知协议版本 (Capsulyric 方法)
-     */
     public int getFocusProtocolVersion() {
         try {
             return android.provider.Settings.System.getInt(
@@ -243,16 +262,12 @@ public class ShizukuIslandHelper {
         }
     }
 
-    /**
-     * 获取 HyperOS 版本号
-     */
     public static String getHyperOSVersion() {
         try {
             Class<?> clazz = Class.forName("android.os.SystemProperties");
             String prop = (String) clazz.getMethod("get", String.class)
                     .invoke(null, "ro.mi.os.version.name");
             if (prop != null && !prop.isEmpty()) return prop;
-
             prop = (String) clazz.getMethod("get", String.class)
                     .invoke(null, "ro.mi.os.version.incremental");
             if (prop != null && !prop.isEmpty()) return prop;
