@@ -2,13 +2,13 @@ package com.floattime.app;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
 import android.util.Log;
 
 import rikka.shizuku.Shizuku;
 import rikka.shizuku.Shizuku.UserServiceArgs;
-import rikka.shizuku.ShizukuServiceConnection;
 
 /**
  * xmsf (小米推送) 网络控制助手
@@ -24,8 +24,9 @@ public class XmsfNetworkHelper {
     private static final String XMSF_PACKAGE = "com.xiaomi.xmsf";
 
     private static IPrivilegedService sPrivilegedService;
+    private static UserServiceArgs sUserServiceArgs;
 
-    private static final ShizukuServiceConnection sConnection = new ShizukuServiceConnection() {
+    private static final ServiceConnection sConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             sPrivilegedService = IPrivilegedService.Stub.asInterface(service);
@@ -44,12 +45,12 @@ public class XmsfNetworkHelper {
      */
     public static void bindService(Context context) {
         try {
-            UserServiceArgs args = new UserServiceArgs(
+            sUserServiceArgs = new UserServiceArgs(
                     new ComponentName(context.getPackageName(), PrivilegedServiceImpl.class.getName()))
                     .daemon(false)
                     .processNameSuffix("privileged")
                     .version(1);
-            Shizuku.bindUserService(args, sConnection);
+            Shizuku.bindUserService(sUserServiceArgs, sConnection);
             Log.d(TAG, "Binding Shizuku UserService...");
         } catch (Exception e) {
             Log.e(TAG, "Failed to bind UserService: " + e.getMessage());
@@ -61,7 +62,9 @@ public class XmsfNetworkHelper {
      */
     public static void unbindService() {
         try {
-            Shizuku.unbindUserService(sConnection);
+            if (sUserServiceArgs != null) {
+                Shizuku.unbindUserService(sUserServiceArgs, sConnection, true);
+            }
             sPrivilegedService = null;
         } catch (Exception e) {
             Log.e(TAG, "Failed to unbind UserService: " + e.getMessage());

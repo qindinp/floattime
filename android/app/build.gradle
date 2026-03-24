@@ -54,11 +54,6 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // 显式注册 AIDL 源码目录（Capacitor 项目结构下 AGP 可能无法自动发现）
-    sourceSets {
-        main {
-            aidl.srcDirs = ['src/main/aidl']
-        }
     }
 }
 
