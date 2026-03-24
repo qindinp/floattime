@@ -80,6 +80,17 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <!-- Shizuku UserService — 白名单绕过特权服务 -->
+        <service
+            android:name="com.floattime.app.PrivilegedServiceImpl"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL">
+            <intent-filter>
+                <action android:name="moe.shizuku.api.intent.action.USER_SERVICE" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>
