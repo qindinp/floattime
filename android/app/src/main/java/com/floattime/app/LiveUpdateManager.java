@@ -19,27 +19,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * LiveUpdateManager - 实时更新通知管理器
+ * LiveUpdateManager v2 - 实时更新通知管理器
  *
  * 支持:
  * - Android 16 (API 36) Notification.ProgressStyle Live Updates
+ * - 锁屏实时进度条（秒数驱动的环形进度）
  * - Android 12+ 前台服务即时行为
  * - 兼容所有 Android 版本 (API 24+)
  * - 小米超级岛 (HyperOS Focus Notification)
  *
- * 优化:
- * - 反射结果缓存: Class/Method 只查找一次
- * - CHANNEL_ID 改为 public 常量，与其他类统一
- * - Segment 颜色正确应用 (修复原 bug)
+ * v2 改进：
+ * - Live Update 状态文本更丰富（当前时间 + 来源）
+ * - ProgressStyle 颜色方案改进
+ * - 前台服务通知增加 Live Update 标识
  */
 public class LiveUpdateManager {
 
     private static final String TAG = "LiveUpdateManager";
 
-    // 修复: 改为 public，FloatTimeService 和 SuperIslandManager 统一引用
     public static final String CHANNEL_ID = "float_time_live_updates";
     private static final String CHANNEL_NAME = "悬浮时间";
-    private static final String CHANNEL_DESC = "实时显示校准时间";
+    private static final String CHANNEL_DESC = "实时显示校准时间 (Live Update)";
 
     public static final int ID_CLOCK = 20240320;
     public static final int ID_SYNC_STATUS = 20240321;
@@ -53,7 +53,7 @@ public class LiveUpdateManager {
 
     private SuperIslandManager mSuperIsland;
 
-    // 优化: 反射结果缓存
+    // 反射结果缓存
     private static Class<?> sProgressStyleClass;
     private static Method sSetStyledByProgress;
     private static Method sSetProgress;
@@ -80,7 +80,7 @@ public class LiveUpdateManager {
             cacheReflection();
         }
 
-        Log.d(TAG, "LiveUpdateManager initialized | API=" + Build.VERSION.SDK_INT
+        Log.d(TAG, "LiveUpdateManager v2 initialized | API=" + Build.VERSION.SDK_INT
                 + " | ProgressStyle=" + mSupportsProgressStyle
                 + " | HyperOS=" + mSuperIsland.isHyperOS()
                 + " | Shizuku=" + mSuperIsland.isShizukuReady()
@@ -95,7 +95,7 @@ public class LiveUpdateManager {
     }
 
     // ================================================================
-    //  反射缓存 (优化: 只执行一次)
+    //  反射缓存
     // ================================================================
 
     private static synchronized void cacheReflection() {
@@ -110,7 +110,6 @@ public class LiveUpdateManager {
             sSegmentClass = Class.forName("android.app.Notification$ProgressStyle$Segment");
             sPointClass = Class.forName("android.app.Notification$ProgressStyle$Point");
 
-            // 缓存 Builder.setProgressStyle
             sBuilderSetProgressStyle = Notification.Builder.class.getMethod(
                     "setProgressStyle", sProgressStyleClass);
 
@@ -118,7 +117,7 @@ public class LiveUpdateManager {
             Log.d(TAG, "ProgressStyle reflection cached successfully");
         } catch (Exception e) {
             Log.w(TAG, "ProgressStyle reflection cache failed (expected on pre-36): " + e.getMessage());
-            sReflectionCached = true; // 标记已尝试，不再重复
+            sReflectionCached = true;
         }
     }
 
@@ -153,7 +152,7 @@ public class LiveUpdateManager {
     }
 
     /**
-     * 创建时钟通知
+     * 创建时钟通知 (用于 startForeground 首次调用，不带网络断开保护)
      */
     public Notification createClockNotification(Context ctx,
                                                 String timeStr, String millisStr,
@@ -162,7 +161,10 @@ public class LiveUpdateManager {
     }
 
     /**
-     * 创建时钟通知 (带主题)
+     * 创建时钟通知 (带主题，仅构建不发送)
+     *
+     * 注意：此方法仅构建通知对象，不执行 notify()。
+     * 适用于 startForeground() 等需要直接返回 Notification 的场景。
      */
     @SuppressWarnings("deprecation")
     public Notification createClockNotification(Context ctx,
@@ -170,37 +172,57 @@ public class LiveUpdateManager {
                                                 String source, boolean isNight) {
         PendingIntent pi = createMainPendingIntent(ctx);
 
-        Notification notification = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle(timeStr + millisStr)
-                .setContentText(source)
-                .setContentIntent(pi)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setOnlyAlertOnce(true)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setForegroundServiceBehavior(
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                                ? NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
-                                : NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
-                .build();
-
-        // Android 16 ProgressStyle
+        Notification notification;
         if (mSupportsProgressStyle) {
+            Notification.Builder nativeBuilder = new Notification.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(timeStr + millisStr)
+                    .setContentText(source + " · Live Update")
+                    .setContentIntent(pi)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setForegroundServiceBehavior(
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? 1 : 0);
+
             try {
-                applyProgressStyle(notification, timeStr, millisStr, isNight);
+                Object progressStyle = buildProgressStyle(timeStr, isNight);
+                if (progressStyle != null && sBuilderSetProgressStyle != null) {
+                    sBuilderSetProgressStyle.invoke(nativeBuilder, progressStyle);
+                }
             } catch (Exception e) {
                 Log.e(TAG, "ProgressStyle apply failed: " + e.getMessage());
             }
+
+            notification = nativeBuilder.build();
+        } else {
+            notification = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(timeStr + millisStr)
+                    .setContentText(source)
+                    .setContentIntent(pi)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setForegroundServiceBehavior(
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                                    ? NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
+                                    : NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
+                    .build();
         }
 
-        // 小米超级岛
+        // 注入焦点通知 JSON（不发送独立通知，不执行网络断开）
         try {
-            mSuperIsland.applyFocusExtras(notification, timeStr, millisStr, source);
+            String focusJson = mSuperIsland.buildFocusParamJson(timeStr, millisStr, source);
+            if (focusJson != null) {
+                notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, focusJson);
+            }
         } catch (Exception e) {
-            Log.e(TAG, "SuperIsland extras failed: " + e.getMessage());
+            Log.e(TAG, "SuperIsland focus param injection failed: " + e.getMessage());
         }
 
         return notification;
@@ -215,11 +237,72 @@ public class LiveUpdateManager {
 
     /**
      * 更新时钟通知 (带主题)
+     *
+     * Android 16+: 使用原生 ProgressStyle + 注入焦点通知 JSON
+     * 小米 HyperOS: 发送通知时带 xmsf 网络断开保护（保证超级岛白名单绕过）
      */
+    @SuppressWarnings("deprecation")
     public void updateClock(Context ctx, String timeStr, String millisStr,
                             String source, boolean isNight) {
-        Notification notification = createClockNotification(ctx, timeStr, millisStr, source, isNight);
-        mNotifMgr.notify(ID_CLOCK, notification);
+        PendingIntent pi = createMainPendingIntent(ctx);
+
+        // 构建通知
+        Notification notification;
+        if (mSupportsProgressStyle) {
+            Notification.Builder nativeBuilder = new Notification.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(timeStr + millisStr)
+                    .setContentText(source + " · Live Update")
+                    .setContentIntent(pi)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setForegroundServiceBehavior(
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? 1 : 0);
+
+            // Android 16 ProgressStyle
+            try {
+                Object progressStyle = buildProgressStyle(timeStr, isNight);
+                if (progressStyle != null && sBuilderSetProgressStyle != null) {
+                    sBuilderSetProgressStyle.invoke(nativeBuilder, progressStyle);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "ProgressStyle apply failed: " + e.getMessage());
+            }
+
+            notification = nativeBuilder.build();
+        } else {
+            notification = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(timeStr + millisStr)
+                    .setContentText(source)
+                    .setContentIntent(pi)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                    .setOngoing(true)
+                    .setShowWhen(false)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setForegroundServiceBehavior(
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                                    ? NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
+                                    : NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
+                    .build();
+        }
+
+        // 注入小米超级岛 V3 焦点通知 JSON
+        try {
+            String focusJson = mSuperIsland.buildFocusParamJson(timeStr, millisStr, source);
+            if (focusJson != null) {
+                notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, focusJson);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "SuperIsland focus param injection failed: " + e.getMessage());
+        }
+
+        // 发送通知 — HyperOS 下带 xmsf 网络断开保护
+        notifyWithNetworkCut(notification);
     }
 
     // ================================================================
@@ -276,33 +359,90 @@ public class LiveUpdateManager {
     }
 
     // ================================================================
-    //  Android 16 ProgressStyle (优化: 反射缓存 + 颜色修复)
+    //  串行化通知发送（xmsf 网络断开保护）
     // ================================================================
 
-    private void applyProgressStyle(Notification notification,
-                                    String timeStr, String millisStr,
-                                    boolean isNight) {
-        if (Build.VERSION.SDK_INT < 36 || sProgressStyleClass == null) return;
+    private static final long NETWORK_CUT_DURATION_MS = 50L;
+
+    /**
+     * 发送通知，HyperOS 下带 xmsf 网络断开保护
+     *
+     * 参考 Capsulyric notifyWithNetworkCut:
+     *   ① 断网 → ② 发通知 → ③ 等50ms → ④ 恢复网络
+     */
+    private void notifyWithNetworkCut(Notification notification) {
+        ShizukuIslandHelper shizuku = mSuperIsland.getShizukuHelper();
+        if (shizuku != null && shizuku.isReady()) {
+            try {
+                // ① 同步断开 xmsf 网络
+                boolean disabled = shizuku.setXmsfNetworkingSync(false);
+                Log.d(TAG, "notifyWithNetworkCut: xmsf disabled=" + disabled);
+
+                // ② 发送通知
+                mNotifMgr.notify(ID_CLOCK, notification);
+
+                // ③ 等待 50ms
+                Thread.sleep(NETWORK_CUT_DURATION_MS);
+
+                // ④ 恢复网络
+                shizuku.setXmsfNetworkingSync(true);
+                Log.d(TAG, "notifyWithNetworkCut: xmsf restored");
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                shizuku.setXmsfNetworkingSync(true);
+            } catch (Exception e) {
+                Log.e(TAG, "notifyWithNetworkCut failed: " + e.getMessage());
+                shizuku.setXmsfNetworkingSync(true);
+            }
+        } else {
+            // 非 HyperOS 或 Shizuku 未就绪，直接发送
+            mNotifMgr.notify(ID_CLOCK, notification);
+        }
+    }
+
+    // ================================================================
+    //  Android 16 ProgressStyle (Live Update)
+    // ================================================================
+
+    /**
+     * 构建 ProgressStyle 对象
+     * 60 个 segment 代表秒数，交替颜色模拟时钟刻度
+     * 3 个关键时间点标记：0秒(绿)、30秒(红)、当前秒(蓝)
+     */
+    private Object buildProgressStyle(String timeStr, boolean isNight) {
+        if (Build.VERSION.SDK_INT < 36 || sProgressStyleClass == null) return null;
 
         int currentSecond = parseSecond(timeStr);
 
-        // 构建 60 个 segment，交替颜色模拟时钟刻度
+        // 构建 60 个 segment
         List<Object> segments = new ArrayList<>(PROGRESS_MAX);
         for (int i = 0; i < PROGRESS_MAX; i++) {
-            segments.add(createSegment(1, i % 2 == 0
-                    ? (isNight ? 0xFF555555 : 0xFFCCCCCC)
-                    : (isNight ? 0xFF444444 : 0xFFE8E8E8)));
+            int color;
+            if (isNight) {
+                color = i % 2 == 0 ? 0xFF555555 : 0xFF444444;
+            } else {
+                color = i % 2 == 0 ? 0xFFCCCCCC : 0xFFE8E8E8;
+            }
+            segments.add(createSegment(1, color));
         }
 
         // 关键时间点标记
         List<Object> points = new ArrayList<>(3);
-        points.add(createPoint(0, 0xFF4CAF50));
-        points.add(createPoint(30, 0xFFFF5722));
-        points.add(createPoint(currentSecond, 0xFF2196F3));
+        points.add(createPoint(0, 0xFF4CAF50));        // 0 秒 = 绿色起点
+        points.add(createPoint(30, 0xFFFF5722));        // 30 秒 = 红色中点
+        points.add(createPoint(currentSecond, 0xFF2196F3)); // 当前秒 = 蓝色
 
-        Object progressStyle = createProgressStyle(currentSecond, segments, points);
-        if (progressStyle != null) {
-            applyStyleToNotification(notification, progressStyle);
+        try {
+            Object style = sProgressStyleClass.getDeclaredConstructor().newInstance();
+            sSetStyledByProgress.invoke(style, false);
+            sSetProgress.invoke(style, currentSecond);
+            sSetProgressSegments.invoke(style, segments);
+            sSetProgressPoints.invoke(style, points);
+            return style;
+        } catch (Exception e) {
+            Log.e(TAG, "buildProgressStyle failed: " + e.getMessage());
+            return null;
         }
     }
 
@@ -317,13 +457,12 @@ public class LiveUpdateManager {
     }
 
     /**
-     * 创建 ProgressStyle.Segment (优化: 缓存反射, 正确应用颜色)
+     * 创建 ProgressStyle.Segment
      */
     private Object createSegment(int length, int color) {
         if (sSegmentClass == null) return fallbackBundle(length, color);
         try {
             Object segment = sSegmentClass.getConstructor(int.class).newInstance(length);
-            // 修复: 原代码创建了 Segment 但没有设置颜色
             Method setColor = sSegmentClass.getMethod("setColor", int.class);
             setColor.invoke(segment, color);
             return segment;
@@ -333,7 +472,7 @@ public class LiveUpdateManager {
     }
 
     /**
-     * 创建 ProgressStyle.Point (优化: 缓存反射, 正确应用颜色)
+     * 创建 ProgressStyle.Point
      */
     private Object createPoint(int position, int color) {
         if (sPointClass == null) {
@@ -344,7 +483,6 @@ public class LiveUpdateManager {
         }
         try {
             Object point = sPointClass.getConstructor(int.class).newInstance(position);
-            // 修复: 设置颜色
             Method setColor = sPointClass.getMethod("setColor", int.class);
             setColor.invoke(point, color);
             return point;
@@ -362,65 +500,6 @@ public class LiveUpdateManager {
         b.putInt("color", color);
         return b;
     }
-
-    /**
-     * 创建 ProgressStyle (优化: 缓存反射)
-     */
-    private Object createProgressStyle(int progress, List<Object> segments, List<Object> points) {
-        if (Build.VERSION.SDK_INT < 36 || sProgressStyleClass == null) return null;
-
-        try {
-            Object style = sProgressStyleClass.getDeclaredConstructor().newInstance();
-            sSetStyledByProgress.invoke(style, false);
-            sSetProgress.invoke(style, progress);
-            sSetProgressSegments.invoke(style, segments);
-            sSetProgressPoints.invoke(style, points);
-            return style;
-        } catch (Exception e) {
-            Log.e(TAG, "createProgressStyle failed: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 将 ProgressStyle 应用到通知 (优化: 缓存反射)
-     */
-    private void applyStyleToNotification(Notification notification, Object progressStyle) {
-        if (Build.VERSION.SDK_INT < 36) return;
-
-        try {
-            Bundle extras = notification.extras;
-
-            Notification.Builder nativeBuilder = new Notification.Builder(mContext, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle(extras.getString(Notification.EXTRA_TITLE, ""))
-                    .setContentText(extras.getString(Notification.EXTRA_TEXT, ""))
-                    .setOngoing(true)
-                    .setShowWhen(false)
-                    .setOnlyAlertOnce(true)
-                    .setVisibility(Notification.VISIBILITY_PUBLIC)
-                    .setForegroundServiceBehavior(
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? 1 : 0);
-
-            if (sBuilderSetProgressStyle != null) {
-                sBuilderSetProgressStyle.invoke(nativeBuilder, progressStyle);
-            }
-
-            Notification built = nativeBuilder.build();
-            extras.putAll(built.extras);
-
-        } catch (Exception e) {
-            Log.e(TAG, "applyStyleToNotification failed: " + e.getMessage());
-        }
-    }
-
-    // ================================================================
-    //  秒表功能 (预留)
-    // ================================================================
-
-    public void startStopwatch() { Log.d(TAG, "startStopwatch: not implemented"); }
-    public void pauseStopwatch() { Log.d(TAG, "pauseStopwatch: not implemented"); }
-    public void stopStopwatch() { Log.d(TAG, "stopStopwatch: not implemented"); }
 
     // ================================================================
     //  私有方法

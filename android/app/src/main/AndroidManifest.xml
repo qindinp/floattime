@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.floattime.app">
 
     <!-- 权限声明 -->
@@ -11,10 +12,11 @@
     <!-- Android 16 (API 36) Live Updates 完整体验所需权限 -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
-    <!-- Shizuku 权限 — 用于绕过小米超级岛白名单 -->
-    <uses-permission android:name="moe.shizuku.api.permission.BIND_SHIZUKU_SERVICE" />
+    <!-- Shizuku 权限 — Shizuku 13.x 使用 API_V23 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
-
+    <!-- 允许 Shizuku 库的 minSdk 与 app 不同 -->
+    <uses-sdk tools:overrideLibrary="rikka.shizuku.api, rikka.shizuku.provider, rikka.shizuku.shared, rikka.shizuku.aidl"/>
 
     <application
         android:allowBackup="true"
@@ -90,6 +92,11 @@
                 <action android:name="moe.shizuku.api.intent.action.USER_SERVICE" />
             </intent-filter>
         </service>
+
+        <!-- Shizuku V3 支持声明 -->
+        <meta-data
+            android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true" />
 
     </application>
 

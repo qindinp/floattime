@@ -14,8 +14,12 @@ import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
- * 超级岛管理器 v2 (小米 HyperOS 焦点通知)
+ * 超级岛管理器 v3 (小米 HyperOS 焦点通知)
  *
  * 集成 Shizuku 白名单绕过 + V3 格式焦点通知构建。
  *
@@ -23,15 +27,9 @@ import org.json.JSONObject;
  * - Capsulyric (https://github.com/FrancoGiudans/Capsulyric)
  * - HyperNotification (https://github.com/xzakota/HyperNotification)
  *
- * 实现方案：
- * 1. 通过 Shizuku 特权通道绕过小米焦点通知白名单限制
- * 2. 使用 FocusParamBuilder 构建 V3 格式的 miui.focus.param JSON
- * 3. 注入到 Notification.extras 中，HyperOS 系统识别后触发超级岛
- *
- * 注意：
- * - 需要用户安装 Shizuku 并授权
- * - 需要 HyperOS 3.0+ 系统支持
- * - 不需要小米开发者平台注册，不需要 Root
+ * v3 修复：
+ * - 通知发送和网络断开改为严格串行（参考 Capsulyric notifyWithNetworkCut）
+ * - 先断网 → 发通知 → 等 50ms → 恢复网络，全部同步完成
  */
 public class SuperIslandManager {
 
@@ -42,6 +40,9 @@ public class SuperIslandManager {
     private static final String CHANNEL_NAME = "悬浮时间";
     private static final String CHANNEL_DESC = "实时显示校准时间 (超级岛)";
     public static final int NOTIFICATION_ID = 20240320;
+
+    // 网络断开后保持时间（毫秒），参考 Capsulyric 的 50ms
+    private static final long NETWORK_CUT_DURATION_MS = 50L;
 
     private final Context mContext;
     private final NotificationManager mNotifMgr;
@@ -63,8 +64,8 @@ public class SuperIslandManager {
 
         createChannel();
 
-        Log.d(TAG, "SuperIslandManager v2 initialized | SDK=" + Build.VERSION.SDK_INT
-                + " | Device=" + Build.MANUFACTURER + " " + Build.MODEL
+        Log.d(TAG, "SuperIslandManager v3 initialized | SDK=" + Build.VERSION.SDK_INT
+                + " | Device=" + Build.MANUFACTURER + " " + Build.MANUFACTURER
                 + " | HyperOS=" + mIsHyperOS);
     }
 
@@ -78,7 +79,6 @@ public class SuperIslandManager {
      */
     public void init() {
         if (mIsHyperOS) {
-            // 多策略检测超级岛支持 (包含 Settings.System 检测)
             boolean islandSupported = mShizukuHelper.isIslandSupported();
             Log.d(TAG, "Island supported (multi-strategy): " + islandSupported);
             mShizukuHelper.init();
@@ -91,6 +91,10 @@ public class SuperIslandManager {
      * 销毁
      */
     public void destroy() {
+        // 退出前恢复 xmsf 网络
+        if (mShizukuHelper.isReady()) {
+            mShizukuHelper.setXmsfNetworkingSync(true);
+        }
         mShizukuHelper.destroy();
         hide();
     }
@@ -137,35 +141,31 @@ public class SuperIslandManager {
     // =============================================
 
     /**
-     * 将焦点通知 extras 注入到通知中
-     * 供 LiveUpdateManager 调用
+     * 构建焦点通知 JSON 供外部注入（不发送独立通知）
+     * 供 LiveUpdateManager 调用，将 miui.focus.param 注入到已有通知中
+     *
+     * 时序：在 mNotifMgr.notify() 之前调用，通知发送时带断网保护
      */
-    public void applyFocusExtras(Notification notification,
-                                 String timeStr, String millisStr,
-                                 String source) {
-        if (!isSupported()) return;
-
-        try {
-            // 发通知前临时断开 xmsf 网络绕过白名单
-            mShizukuHelper.preNotificationHook();
-            String json = buildParamJson(timeStr, millisStr, source);
-            if (json != null) {
-                notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, json);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "applyFocusExtras failed: " + e.getMessage());
-        }
+    public String buildFocusParamJson(String timeStr, String millisStr, String source) {
+        if (!isSupported()) return null;
+        return buildParamJson(timeStr, millisStr, source);
     }
 
     /**
      * 显示/更新超级岛通知
+     *
+     * 核心时序（参考 Capsulyric notifyWithNetworkCut）：
+     * 1. 如果 Shizuku 就绪 → 同步断开 xmsf 网络
+     * 2. 构建并发送通知
+     * 3. 等待 50ms（让系统在断网状态下处理通知）
+     * 4. 恢复 xmsf 网络
      */
     public void show(String time, String millis, String source) {
         if (!isSupported()) return;
         try {
             Notification notification = buildNotification(time, millis, source);
             if (notification != null) {
-                mNotifMgr.notify(NOTIFICATION_ID, notification);
+                notifyWithNetworkCut(notification);
             }
         } catch (Exception e) {
             Log.e(TAG, "show failed: " + e.getMessage());
@@ -173,7 +173,7 @@ public class SuperIslandManager {
     }
 
     /**
-     * 更新超级岛通知 (与 show 相同，带节流)
+     * 更新超级岛通知 (与 show 相同)
      */
     public void update(String time, String millis, String source) {
         show(time, millis, source);
@@ -184,6 +184,58 @@ public class SuperIslandManager {
      */
     public void hide() {
         mNotifMgr.cancel(NOTIFICATION_ID);
+    }
+
+    // =============================================
+    //  串行化通知发送（核心修复）
+    // =============================================
+
+    /**
+     * 发送通知，带可选的 xmsf 网络断开/恢复
+     *
+     * 参考 Capsulyric SuperIslandHandler.notifyWithNetworkCut():
+     *   scope.launch {
+     *       XmsfNetworkHelper.setXmsfNetworkingEnabled(context, false)  // ① 断网
+     *       manager.notify(...)                                          // ② 发通知
+     *       delay(50ms)                                                  // ③ 等待
+     *       XmsfNetworkHelper.setXmsfNetworkingEnabled(context, true)    // ④ 恢复
+     *   }
+     *
+     * Java 版实现：同步阻塞当前线程完成以上 4 步
+     */
+    private void notifyWithNetworkCut(Notification notification) {
+        if (mShizukuHelper.isReady()) {
+            try {
+                // ① 同步断开 xmsf 网络
+                Log.d(TAG, "Step 1: Disabling xmsf network...");
+                boolean disabled = mShizukuHelper.setXmsfNetworkingSync(false);
+                Log.d(TAG, "Step 1 result: " + (disabled ? "OK" : "FAILED"));
+
+                // ② 发送通知
+                mNotifMgr.notify(NOTIFICATION_ID, notification);
+                Log.d(TAG, "Step 2: Notification sent");
+
+                // ③ 等待 50ms — 给系统时间在断网状态下处理焦点通知
+                Thread.sleep(NETWORK_CUT_DURATION_MS);
+
+                // ④ 恢复 xmsf 网络
+                mShizukuHelper.setXmsfNetworkingSync(true);
+                Log.d(TAG, "Step 4: xmsf network restored");
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                // 恢复网络
+                mShizukuHelper.setXmsfNetworkingSync(true);
+                Log.w(TAG, "Network cut interrupted, restored network");
+            } catch (Exception e) {
+                Log.e(TAG, "notifyWithNetworkCut failed: " + e.getMessage());
+                // 确保恢复网络
+                mShizukuHelper.setXmsfNetworkingSync(true);
+            }
+        } else {
+            // Shizuku 未就绪，直接发送通知
+            mNotifMgr.notify(NOTIFICATION_ID, notification);
+        }
     }
 
     // =============================================
@@ -279,8 +331,11 @@ public class SuperIslandManager {
                                 : NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
                 .build();
 
-        // 注入 V3 焦点通知
-        applyFocusExtras(notification, timeStr, millisStr, source);
+        // 注入 V3 焦点通知 JSON
+        String json = buildParamJson(timeStr, millisStr, source);
+        if (json != null) {
+            notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, json);
+        }
 
         return notification;
     }
@@ -346,11 +401,8 @@ public class SuperIslandManager {
 
     /**
      * 检查是否支持超级岛（多策略检测）
-     * 使用 ShizukuIslandHelper 的多策略方法
      */
     public static boolean isIslandSupportedBySystem() {
-        // 静态方法中只能做系统属性检测
-        // 完整检测需要 Context，由 ShizukuIslandHelper.isIslandSupported() 提供
         return ShizukuIslandHelper.getHyperOSVersion().startsWith("OS3.")
                 || ShizukuIslandHelper.getHyperOSVersion().startsWith("OS2.");
     }
