@@ -1,13 +1,9 @@
 package com.floattime.app;
 
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.IBinder;
-import android.os.Parcel;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -15,10 +11,12 @@ import androidx.annotation.NonNull;
 import dev.rikka.shizuku.Shizuku;
 
 /**
- * Shizuku 超级岛白名单绕过助手 (UserService 版本)
+ * Shizuku 超级岛白名单绕过助手
  *
- * 使用 Shizuku UserService API 执行特权 shell 命令，
- * 绕过小米超级岛焦点通知白名单限制。
+ * 检测 Shizuku 状态，为后续白名单绕过做准备。
+ * 实际的白名单绕过需要：
+ * - HyperCeiler (LSPosed 模块)
+ * - 或 Root 权限
  */
 public class ShizukuIslandHelper {
 
@@ -26,32 +24,23 @@ public class ShizukuIslandHelper {
     private static final String FOCUS_PROVIDER_URI = "content://miui.statusbar.notification.public";
     private static final int SHIZUKU_PERMISSION_REQUEST_CODE = 1001;
 
-    // UserService 事务码
-    private static final int TRANSACTION_EXECUTE = 1;
-    private static final int TRANSACTION_DESTROY = 16777115;
-
     private final Context mContext;
     private final String mPackageName;
 
     private boolean mShizukuAvailable = false;
     private boolean mShizukuPermissionGranted = false;
-    private boolean mWhitelistBypassed = false;
-
-    private IBinder mUserService;
-    private boolean mUserServiceBound = false;
 
     private final Shizuku.OnBinderReceivedListener mBinderReceivedListener =
             () -> {
                 Log.d(TAG, "Shizuku binder received");
-                checkPermissionAndBindService();
+                mShizukuAvailable = true;
+                checkPermission();
             };
 
     private final Shizuku.OnBinderDeadListener mBinderDeadListener =
             () -> {
                 Log.d(TAG, "Shizuku binder dead");
                 mShizukuAvailable = false;
-                mUserServiceBound = false;
-                mUserService = null;
             };
 
     private final Shizuku.OnRequestPermissionResultListener mPermissionListener =
@@ -59,28 +48,8 @@ public class ShizukuIslandHelper {
                 if (requestCode == SHIZUKU_PERMISSION_REQUEST_CODE) {
                     mShizukuPermissionGranted = grantResult == PackageManager.PERMISSION_GRANTED;
                     Log.d(TAG, "Permission result: " + mShizukuPermissionGranted);
-                    if (mShizukuPermissionGranted) {
-                        bindUserService();
-                    }
                 }
             };
-
-    private final ServiceConnection mServiceConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            mUserService = service;
-            mUserServiceBound = true;
-            Log.d(TAG, "UserService connected");
-            tryBypassWhitelist();
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            mUserService = null;
-            mUserServiceBound = false;
-            Log.d(TAG, "UserService disconnected");
-        }
-    };
 
     public ShizukuIslandHelper(@NonNull Context context) {
         mContext = context.getApplicationContext();
@@ -97,11 +66,9 @@ public class ShizukuIslandHelper {
             return;
         }
 
-        mShizukuAvailable = Shizuku.getBinder() != null;
-        Log.d(TAG, "Shizuku available: " + mShizukuAvailable);
-
-        if (mShizukuAvailable) {
-            checkPermissionAndBindService();
+        if (Shizuku.getBinder() != null) {
+            mShizukuAvailable = true;
+            checkPermission();
         }
     }
 
@@ -109,164 +76,25 @@ public class ShizukuIslandHelper {
         Shizuku.removeBinderReceivedListener(mBinderReceivedListener);
         Shizuku.removeBinderDeadListener(mBinderDeadListener);
         Shizuku.removeRequestPermissionResultListener(mPermissionListener);
-
-        if (mUserServiceBound && mUserService != null) {
-            try {
-                Parcel data = Parcel.obtain();
-                Parcel reply = Parcel.obtain();
-                try {
-                    mUserService.transact(TRANSACTION_DESTROY, data, reply, 0);
-                } finally {
-                    data.recycle();
-                    reply.recycle();
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Destroy service failed: " + e.getMessage());
-            }
-            
-            try {
-                Shizuku.unbindUserService(
-                        new Shizuku.UserServiceArgs(
-                                new ComponentName(mPackageName, ShellUserService.class.getName()))
-                                .tag("floattime-shell"),
-                        mServiceConnection,
-                        true
-                );
-            } catch (Exception e) {
-                Log.w(TAG, "Unbind failed: " + e.getMessage());
-            }
-            
-            mUserServiceBound = false;
-            mUserService = null;
-        }
     }
 
-    public boolean isShizukuAvailable() { return mShizukuAvailable; }
-    public boolean isPermissionGranted() { return mShizukuPermissionGranted; }
-    public boolean isWhitelistBypassed() { return mWhitelistBypassed; }
-    public boolean isReady() { return mShizukuAvailable && mShizukuPermissionGranted && mUserServiceBound; }
-
-    private void checkPermissionAndBindService() {
+    private void checkPermission() {
         if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
             mShizukuPermissionGranted = true;
-            bindUserService();
+            Log.d(TAG, "Shizuku permission granted");
         } else {
             Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE);
         }
     }
 
-    private void bindUserService() {
-        try {
-            Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(
-                    new ComponentName(mPackageName, ShellUserService.class.getName()))
-                    .daemon(false)
-                    .processNameSuffix("shell_service")
-                    .debuggable(false)
-                    .version(1)
-                    .tag("floattime-shell");
+    public boolean isShizukuAvailable() { return mShizukuAvailable; }
+    public boolean isPermissionGranted() { return mShizukuPermissionGranted; }
+    public boolean isWhitelistBypassed() { return false; }
+    public boolean isReady() { return mShizukuAvailable && mShizukuPermissionGranted; }
 
-            Shizuku.bindUserService(args, mServiceConnection);
-            Log.d(TAG, "UserService bind requested");
-        } catch (Exception e) {
-            Log.e(TAG, "Bind service failed: " + e.getMessage());
-        }
-    }
-
-    public void tryBypassWhitelist() {
-        if (!mUserServiceBound || mUserService == null) {
-            Log.w(TAG, "UserService not ready");
-            return;
-        }
-
-        new Thread(() -> {
-            try {
-                Log.d(TAG, "Attempting whitelist bypass for: " + mPackageName);
-
-                String islandSupport = executeShell("getprop persist.sys.feature.island");
-                Log.d(TAG, "Island support: " + islandSupport);
-
-                String protocolVer = executeShell("settings get system notification_focus_protocol");
-                Log.d(TAG, "Focus protocol version: " + protocolVer);
-
-                boolean registered = registerToWhitelistViaProvider();
-                if (registered) {
-                    mWhitelistBypassed = true;
-                    Log.d(TAG, "✅ Whitelist bypass via provider successful!");
-                    return;
-                }
-
-                boolean shellResult = registerViaShell();
-                mWhitelistBypassed = shellResult;
-
-                if (shellResult) {
-                    Log.d(TAG, "✅ Whitelist bypass via shell successful!");
-                } else {
-                    Log.w(TAG, "⚠️ Whitelist bypass may require HyperCeiler or Root");
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Whitelist bypass failed: " + e.getMessage(), e);
-            }
-        }).start();
-    }
-
-    private boolean registerToWhitelistViaProvider() {
-        try {
-            executeShell("content call --uri " + FOCUS_PROVIDER_URI +
-                    " --method registerFocusNotification" +
-                    " --extra string:package:" + mPackageName +
-                    " --extra int:enable:1");
-
-            executeShell("content call --uri " + FOCUS_PROVIDER_URI +
-                    " --method grantFocusPermission" +
-                    " --extra string:package:" + mPackageName);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "ContentProvider registration failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    private boolean registerViaShell() {
-        try {
-            String currentList = executeShell("settings get system focus_notification_whitelist");
-
-            if (currentList == null || !currentList.contains(mPackageName)) {
-                String newList;
-                if (currentList == null || currentList.trim().isEmpty() || "null".equals(currentList.trim())) {
-                    newList = mPackageName;
-                } else {
-                    newList = currentList.trim() + "," + mPackageName;
-                }
-                executeShell("settings put system focus_notification_whitelist \"" + newList + "\"");
-            }
-
-            String verify = executeShell("settings get system focus_notification_whitelist");
-            return verify != null && verify.contains(mPackageName);
-        } catch (Exception e) {
-            Log.e(TAG, "Shell registration failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    private String executeShell(String command) throws Exception {
-        if (mUserService == null) {
-            throw new Exception("ShellService not available");
-        }
-
-        Parcel data = Parcel.obtain();
-        Parcel reply = Parcel.obtain();
-        try {
-            data.writeInterfaceToken("com.floattime.app.IShellService");
-            data.writeString(command);
-            mUserService.transact(TRANSACTION_EXECUTE, data, reply, 0);
-            reply.readException();
-            return reply.readString();
-        } finally {
-            data.recycle();
-            reply.recycle();
-        }
-    }
-
+    /**
+     * 检查焦点通知权限
+     */
     public boolean checkFocusPermission() {
         try {
             Uri uri = Uri.parse(FOCUS_PROVIDER_URI);
@@ -275,10 +103,14 @@ public class ShizukuIslandHelper {
             Bundle result = mContext.getContentResolver().call(uri, "canShowFocus", null, extras);
             return result != null && result.getBoolean("canShowFocus", false);
         } catch (Exception e) {
+            Log.d(TAG, "checkFocusPermission failed: " + e.getMessage());
             return false;
         }
     }
 
+    /**
+     * 检测超级岛系统支持
+     */
     public boolean isSystemIslandSupported() {
         try {
             Class<?> clazz = Class.forName("android.os.SystemProperties");
@@ -287,5 +119,14 @@ public class ShizukuIslandHelper {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * 尝试绕过白名单 (提示用户安装 HyperCeiler)
+     */
+    public void tryBypassWhitelist() {
+        Log.d(TAG, "tryBypassWhitelist: HyperCeiler or Root required for actual bypass");
+        // 实际的白名单绕过需要 HyperCeiler 或 Root
+        // Shizuku UserService 方式暂不实现，因为复杂度较高
     }
 }
