@@ -8,6 +8,7 @@ import android.util.Log;
 
 import rikka.shizuku.Shizuku;
 import rikka.shizuku.Shizuku.UserServiceArgs;
+import rikka.shizuku.ShizukuServiceConnection;
 
 /**
  * xmsf (小米推送) 网络控制助手
@@ -24,7 +25,7 @@ public class XmsfNetworkHelper {
 
     private static IPrivilegedService sPrivilegedService;
 
-    private static final Shizuku.UserServiceConnection sConnection = new Shizuku.UserServiceConnection() {
+    private static final ShizukuServiceConnection sConnection = new ShizukuServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             sPrivilegedService = IPrivilegedService.Stub.asInterface(service);
