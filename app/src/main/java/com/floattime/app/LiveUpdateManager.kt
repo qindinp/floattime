@@ -230,8 +230,9 @@ class LiveUpdateManager(context: Context) {
     // ================================================================
     //  Android 16 ProgressStyle
     // ================================================================
+    @Suppress("UNUSED_PARAMETER")
 
-    private fun applyProgressStyle(notification: Notification, timeStr: String, _: String, isNight: Boolean) {
+    private fun applyProgressStyle(notification: Notification, timeStr: String, millisStr: String, isNight: Boolean) {
         if (Build.VERSION.SDK_INT < 36 || progressStyleClass == null) return
 
         val currentSecond = parseSecond(timeStr)
