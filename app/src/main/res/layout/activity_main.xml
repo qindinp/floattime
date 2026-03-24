@@ -120,7 +120,7 @@
                 android:text="悬浮窗显示"
                 android:textSize="16sp" />
 
-            <Switch
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/floatWindowSwitch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

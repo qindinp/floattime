@@ -17,18 +17,18 @@ import android.view.View
 import android.widget.Button
 import android.widget.RadioButton
 import android.widget.RadioGroup
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.app.ActivityCompat
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.roundToInt
 
 /**
  * 主界面 - 负责权限申请、服务启动、主题设置
@@ -52,7 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var themeAuto: RadioButton
     private lateinit var themeLight: RadioButton
     private lateinit var themeDark: RadioButton
-    private lateinit var floatWindowSwitch: Switch
+    private lateinit var floatWindowSwitch: SwitchCompat
 
     private lateinit var prefs: SharedPreferences
     private lateinit var liveUpdateManager: LiveUpdateManager
@@ -68,6 +68,17 @@ class MainActivity : AppCompatActivity() {
             } else {
                 showStatus("❌ 需要悬浮窗权限")
             }
+        }
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startFloatingService()
+        } else {
+            // 即使拒绝通知权限，也允许启动服务（只是没有通知）
+            startFloatingService()
         }
     }
 
@@ -129,14 +140,12 @@ class MainActivity : AppCompatActivity() {
     private fun requestInitialPermissions() {
         Log.d(TAG, "Requesting initial permissions")
 
-        // Android 13+ 请求通知权限
+        // Android 13+ 请求通知权限 (使用 Activity Result API)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001
-                )
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
@@ -205,7 +214,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun dpToPx(dp: Float): Int =
-        Math.round(dp * resources.displayMetrics.density)
+        (dp * resources.displayMetrics.density).roundToInt()
 
     private fun updateServiceTheme(mode: Int) {
         val intent = Intent(this, FloatTimeService::class.java).apply {
@@ -328,20 +337,11 @@ class MainActivity : AppCompatActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1002
-                )
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 startFloatingService()
             }
         } else {
-            startFloatingService()
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1002 || requestCode == 1001) {
             startFloatingService()
         }
     }
