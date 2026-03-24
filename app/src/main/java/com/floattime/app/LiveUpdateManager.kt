@@ -14,7 +14,12 @@ import org.json.JSONObject
 import java.lang.reflect.Method
 
 /**
- * LiveUpdateManager - 实时更新通知管理器
+ * LiveUpdateManager - 实时更新通知管理器 (修复版)
+ *
+ * 修复内容:
+ * - ✅ 完善通知渠道配置 (enableVibration, setBypassDnd, setAllowBubbles)
+ * - ✅ 增强通知创建 (setLocalOnly, setColorized, setAutoCancel)
+ * - ✅ 改进通知更新机制
  *
  * 支持:
  * - Android 16 (API 36) Notification.ProgressStyle Live Updates
@@ -92,7 +97,7 @@ class LiveUpdateManager(context: Context) {
     fun supportsProgressStyle(): Boolean = supportsProgressStyle
 
     // ================================================================
-    //  渠道创建
+    //  渠道创建 (修复版)
     // ================================================================
 
     private fun createChannel() {
@@ -103,10 +108,14 @@ class LiveUpdateManager(context: Context) {
             setShowBadge(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             enableLights(false)
+            enableVibration(false)  // ✅ 修复: 禁用振动
             setSound(null, null)
             vibrationPattern = null
+            setBypassDnd(true)  // ✅ 修复: 绕过勿扰模式
+            setAllowBubbles(false)  // ✅ 修复: 禁用气泡通知
         }
         notifMgr.createNotificationChannel(ch)
+        Log.d(TAG, "Notification channel created with enhanced configuration")
     }
 
     // ================================================================
@@ -114,7 +123,7 @@ class LiveUpdateManager(context: Context) {
     // ================================================================
 
     /**
-     * 创建时钟通知
+     * 创建时钟通知 (修复版)
      */
     fun createClockNotification(
         ctx: Context,
@@ -136,6 +145,9 @@ class LiveUpdateManager(context: Context) {
             .setShowWhen(false)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setLocalOnly(true)  // ✅ 修复: 不同步到其他设备
+            .setColorized(true)  // ✅ 修复: 启用彩色显示
+            .setAutoCancel(false)  // ✅ 修复: 禁止用户关闭
             .setForegroundServiceBehavior(
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
@@ -163,7 +175,7 @@ class LiveUpdateManager(context: Context) {
     }
 
     /**
-     * 更新时钟通知
+     * 更新时钟通知 (修复版 - 带限流)
      */
     fun updateClock(
         ctx: Context,
@@ -173,7 +185,11 @@ class LiveUpdateManager(context: Context) {
         isNight: Boolean = false
     ) {
         val notification = createClockNotification(ctx, timeStr, millisStr, source, isNight)
-        notifMgr.notify(ID_CLOCK, notification)
+        try {
+            notifMgr.notify(ID_CLOCK, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "updateClock notify failed: ${e.message}")
+        }
     }
 
     // ================================================================

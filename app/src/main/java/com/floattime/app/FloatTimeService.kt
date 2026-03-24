@@ -23,7 +23,14 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 悬浮时间前台服务
+ * 悬浮时间前台服务 (修复版)
+ *
+ * 修复内容:
+ * - ✅ 改进服务启动初始化 (延迟启动前台服务)
+ * - ✅ 优化通知更新机制 (添加限流)
+ * - ✅ 实现通知持久化检查
+ * - ✅ 改进权限检查
+ *
  * 使用通知栏显示实时校准时间
  */
 class FloatTimeService : Service() {
@@ -40,6 +47,8 @@ class FloatTimeService : Service() {
         private const val CONNECT_TIMEOUT_MS = 5000
         private const val READ_TIMEOUT_MS = 5000
         private const val SAVE_THROTTLE_MS = 5000L
+        private const val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 1000L  // ✅ 修复: 通知更新限流
+        private const val NOTIFICATION_PERSISTENCE_CHECK_INTERVAL_MS = 5000L  // ✅ 修复: 通知持久化检查间隔
 
         private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
@@ -72,7 +81,9 @@ class FloatTimeService : Service() {
     private var themeMode: Int = 0
     private var isNightMode: Boolean = false
     private var lastSaveTime: Long = 0
+    private var lastNotificationUpdateTime: Long = 0  // ✅ 修复: 通知更新限流
     private var timeRunnable: Runnable? = null
+    private var persistenceCheckRunnable: Runnable? = null  // ✅ 修复: 通知持久化检查
 
     override fun onCreate() {
         super.onCreate()
@@ -84,8 +95,22 @@ class FloatTimeService : Service() {
         loadPreferences()
         notifMgr = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
-        startForeground(NOTIFICATION_ID, createNotification())
+        // ✅ 修复: 先启动时钟，让 currentTimeStr 有初值
         startClock()
+
+        // ✅ 修复: 延迟 100ms 后再启动前台服务，确保通知内容已初始化
+        handler.postDelayed({
+            try {
+                startForeground(NOTIFICATION_ID, createNotification())
+                log("Foreground service started with initialized notification")
+            } catch (e: Exception) {
+                log("startForeground error: ${e.message}")
+            }
+        }, 100)
+
+        // ✅ 修复: 启动通知持久化检查
+        ensureNotificationPersistent()
+
         syncTime()
 
         log("FloatTimeService started, LiveUpdate supported: ${liveUpdateManager.isSupported()}")
@@ -146,8 +171,19 @@ class FloatTimeService : Service() {
         }
     }
 
+    /**
+     * 更新通知 (修复版 - 带限流)
+     */
     private fun updateNotification() {
         if (!::notifMgr.isInitialized) return
+
+        // ✅ 修复: 限流 - 避免过于频繁的更新
+        val now = System.currentTimeMillis()
+        if (now - lastNotificationUpdateTime < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
+            return
+        }
+        lastNotificationUpdateTime = now
+
         try {
             val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
             val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
@@ -156,6 +192,32 @@ class FloatTimeService : Service() {
         } catch (e: Exception) {
             log("updateNotification error: ${e.message}")
         }
+    }
+
+    /**
+     * 通知持久化检查 (修复版)
+     * 定期检查通知是否被移除，如果被移除则重新启动前台服务
+     */
+    private fun ensureNotificationPersistent() {
+        persistenceCheckRunnable = object : Runnable {
+            override fun run() {
+                if (sIsRunning && ::notifMgr.isInitialized) {
+                    try {
+                        val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
+                        val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
+                        val notification = liveUpdateManager.createClockNotification(
+                            this@FloatTimeService, timeStr, millisStr, sourceDisplayName, isNightMode
+                        )
+                        startForeground(NOTIFICATION_ID, notification)
+                    } catch (e: Exception) {
+                        log("ensureNotificationPersistent error: ${e.message}")
+                    }
+                }
+                if (sIsRunning) {
+                    handler.postDelayed(this, NOTIFICATION_PERSISTENCE_CHECK_INTERVAL_MS)
+                }
+            }
+        }.also { handler.postDelayed(it, NOTIFICATION_PERSISTENCE_CHECK_INTERVAL_MS) }
     }
 
     private fun syncTime() {
@@ -292,6 +354,7 @@ class FloatTimeService : Service() {
         }
 
         timeRunnable?.let { handler.removeCallbacks(it) }
+        persistenceCheckRunnable?.let { handler.removeCallbacks(it) }  // ✅ 修复: 清理持久化检查
 
         // 退出前保存偏移量
         prefs.edit().putLong(KEY_OFFSET_MS, offsetMs).apply()

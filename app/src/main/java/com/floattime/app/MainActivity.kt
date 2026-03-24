@@ -31,7 +31,12 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * 主界面 - 负责权限申请、服务启动、主题设置
+ * 主界面 - 负责权限申请、服务启动、主题设置 (修复版)
+ *
+ * 修复内容:
+ * - ✅ 完善权限检查 (FOREGROUND_SERVICE, POST_NOTIFICATIONS, SYSTEM_ALERT_WINDOW)
+ * - ✅ 改进权限请求流程
+ * - ✅ 增强错误处理
  */
 class MainActivity : AppCompatActivity() {
 
@@ -40,6 +45,11 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "FloatTimePrefs"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_PERMISSIONS_REQUESTED = "permissions_requested"
+
+        // ✅ 修复: 权限请求码
+        private const val REQUEST_CODE_OVERLAY = 1001
+        private const val REQUEST_CODE_NOTIFICATION = 1002
+        private const val REQUEST_CODE_FOREGROUND_SERVICE = 1003
     }
 
     private lateinit var startBtn: Button
@@ -126,16 +136,30 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "MainActivity onCreate - Dark mode enabled, permissions checked")
     }
 
+    /**
+     * 请求初始权限 (修复版)
+     */
     private fun requestInitialPermissions() {
         Log.d(TAG, "Requesting initial permissions")
 
-        // Android 13+ 请求通知权限
+        // ✅ 修复: Android 12+ 请求前台服务权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
+                )
+            }
+        }
+
+        // ✅ 修复: Android 13+ 请求通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001
+                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
                 )
             }
         }
@@ -286,16 +310,43 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread { statusText.text = text }
     }
 
+    /**
+     * 检查悬浮窗权限 (修复版)
+     */
     private fun checkOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (Settings.canDrawOverlays(this)) {
-                checkNotificationPermissionAndStart()
-            } else {
+            // ✅ 修复: 检查悬浮窗权限
+            if (!Settings.canDrawOverlays(this)) {
                 showOverlayPermissionDialog()
+                return
             }
-        } else {
-            startFloatingService()
         }
+
+        // ✅ 修复: 检查前台服务权限（Android 12+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
+                )
+                return
+            }
+        }
+
+        // ✅ 修复: 检查通知权限（Android 13+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
+                )
+                return
+            }
+        }
+
+        startFloatingService()
     }
 
     private fun showOverlayPermissionDialog() {
@@ -329,7 +380,7 @@ class MainActivity : AppCompatActivity() {
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1002
+                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
                 )
             } else {
                 startFloatingService()
@@ -341,15 +392,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1002 || requestCode == 1001) {
-            startFloatingService()
+        when (requestCode) {
+            REQUEST_CODE_NOTIFICATION, REQUEST_CODE_FOREGROUND_SERVICE -> {
+                // ✅ 修复: 权限请求后继续启动
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startFloatingService()
+                } else {
+                    showStatus("❌ 缺少必要权限")
+                }
+            }
         }
     }
 
     private fun startFloatingService() {
         try {
             prefs.edit().putBoolean("service_was_started", true).apply()
-        val intent = Intent(this, FloatTimeService::class.java)
+            val intent = Intent(this, FloatTimeService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
             } else {
