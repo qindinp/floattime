@@ -348,7 +348,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun startFloatingService() {
         try {
-            val intent = Intent(this, FloatTimeService::class.java)
+            prefs.edit().putBoolean("service_was_started", true).apply()
+        val intent = Intent(this, FloatTimeService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
             } else {
