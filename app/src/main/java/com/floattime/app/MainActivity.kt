@@ -197,9 +197,9 @@ class MainActivity : AppCompatActivity() {
 
         btn.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(12).toFloat()
+            cornerRadius = dpToPx(12f).toFloat()
             setColor(bgColor)
-            setStroke(dpToPx(2), textColor)
+            setStroke(dpToPx(2f), textColor)
         }
         btn.setTextColor(textColor)
     }
