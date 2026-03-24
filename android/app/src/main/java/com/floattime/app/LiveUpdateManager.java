@@ -502,6 +502,15 @@ public class LiveUpdateManager {
     }
 
     // ================================================================
+
+    // ================================================================
+    //  秒表功能 (预留)
+    // ================================================================
+
+    public void startStopwatch() { Log.d(TAG, "startStopwatch: not implemented"); }
+    public void pauseStopwatch() { Log.d(TAG, "pauseStopwatch: not implemented"); }
+    public void stopStopwatch() { Log.d(TAG, "stopStopwatch: not implemented"); }
+
     //  私有方法
     // ================================================================
 
