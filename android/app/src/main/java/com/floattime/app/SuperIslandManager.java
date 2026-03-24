@@ -146,6 +146,8 @@ public class SuperIslandManager {
         if (!isSupported()) return;
 
         try {
+            // 发通知前临时断开 xmsf 网络绕过白名单
+            mShizukuHelper.preNotificationHook();
             String json = buildParamJson(timeStr, millisStr, source);
             if (json != null) {
                 notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, json);
