@@ -78,6 +78,9 @@ public class SuperIslandManager {
      */
     public void init() {
         if (mIsHyperOS) {
+            // 多策略检测超级岛支持 (包含 Settings.System 检测)
+            boolean islandSupported = mShizukuHelper.isIslandSupported();
+            Log.d(TAG, "Island supported (multi-strategy): " + islandSupported);
             mShizukuHelper.init();
             Log.d(TAG, "Shizuku helper initialized | available=" + mShizukuHelper.isShizukuAvailable()
                     + " | permission=" + mShizukuHelper.isPermissionGranted());
@@ -340,16 +343,13 @@ public class SuperIslandManager {
     }
 
     /**
-     * 检查是否支持超级岛（系统属性级别）
+     * 检查是否支持超级岛（多策略检测）
+     * 使用 ShizukuIslandHelper 的多策略方法
      */
     public static boolean isIslandSupportedBySystem() {
-        try {
-            Class<?> clazz = Class.forName("android.os.SystemProperties");
-            String prop = (String) clazz.getMethod("get", String.class)
-                    .invoke(null, "persist.sys.feature.island");
-            return "true".equals(prop);
-        } catch (Exception e) {
-            return false;
-        }
+        // 静态方法中只能做系统属性检测
+        // 完整检测需要 Context，由 ShizukuIslandHelper.isIslandSupported() 提供
+        return ShizukuIslandHelper.getHyperOSVersion().startsWith("OS3.")
+                || ShizukuIslandHelper.getHyperOSVersion().startsWith("OS2.");
     }
 }
