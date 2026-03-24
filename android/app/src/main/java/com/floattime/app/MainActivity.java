@@ -296,7 +296,8 @@ public class MainActivity extends AppCompatActivity {
             }
             
             String version = SuperIslandManager.getHyperOSVersion();
-            boolean islandSupported = SuperIslandManager.isIslandSupportedBySystem();
+            boolean islandSupported = sim.getShizukuHelper().isIslandSupported();
+            int focusProtocol = sim.getShizukuHelper().getFocusProtocolVersion();
             boolean shizukuReady = sim.isShizukuReady();
             boolean whitelistBypassed = sim.isWhitelistBypassed();
             
@@ -304,6 +305,7 @@ public class MainActivity extends AppCompatActivity {
             sb.append("🏝️ 超级岛状态:\n");
             sb.append("  HyperOS: ").append(version).append("\n");
             sb.append("  系统支持: ").append(islandSupported ? "✅" : "❌").append("\n");
+            sb.append("  焦点协议: v").append(focusProtocol).append("\n");
             sb.append("  Shizuku: ").append(shizukuReady ? "✅ 已连接" : "⚠️ 未连接").append("\n");
             sb.append("  白名单: ").append(whitelistBypassed ? "✅ 已绕过" : "❌ 未绕过");
             
