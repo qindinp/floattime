@@ -15,82 +15,85 @@ import androidx.core.app.NotificationCompat;
 import org.json.JSONObject;
 
 /**
- * 超级岛管理器 (小米 HyperOS 焦点通知)
+ * 超级岛管理器 v2 (小米 HyperOS 焦点通知)
  *
- * 参考 HyperNotification (https://github.com/xzakota/HyperNotification) 的实现方案，
- * 通过 Notification extras 注入小米焦点通知数据，实现超级岛显示。
+ * 集成 Shizuku 白名单绕过 + V3 格式焦点通知构建。
  *
- * 优化:
- * - JSON 构建缓存: 时间变化时只更新 title/content，避免重复创建整个 JSON
- * - 检测结果缓存: HyperOS 检测只执行一次
+ * 参考项目：
+ * - Capsulyric (https://github.com/FrancoGiudans/Capsulyric)
+ * - HyperNotification (https://github.com/xzakota/HyperNotification)
  *
- * 注意:
- * - 需要 HyperOS 系统支持
- * - 焦点通知有白名单限制，可能需要 XP 模块解除
- * - 详情参见: https://dev.mi.com/xiaomihyperos/documentation/detail?pId=2131
+ * 实现方案：
+ * 1. 通过 Shizuku 特权通道绕过小米焦点通知白名单限制
+ * 2. 使用 FocusParamBuilder 构建 V3 格式的 miui.focus.param JSON
+ * 3. 注入到 Notification.extras 中，HyperOS 系统识别后触发超级岛
+ *
+ * 注意：
+ * - 需要用户安装 Shizuku 并授权
+ * - 需要 HyperOS 3.0+ 系统支持
+ * - 不需要小米开发者平台注册，不需要 Root
  */
 public class SuperIslandManager {
 
     private static final String TAG = "SuperIslandManager";
 
-    // 小米焦点通知 Bundle Keys
-    private static final String FOCUS_PARAM = "miui.focus.param";
-    private static final String FOCUS_PICS = "miui.focus.pics";
-    private static final String FOCUS_ACTIONS = "miui.focus.actions";
-
-    // 通知渠道
-    private static final String CHANNEL_ID = "float_time_live_updates"; // 修复: 统一渠道 ID
+    // 通知渠道 (与 LiveUpdateManager 统一)
+    public static final String CHANNEL_ID = FocusParamBuilder.CHANNEL_ID;
     private static final String CHANNEL_NAME = "悬浮时间";
-    private static final int NOTIFICATION_ID = 20240320;
+    private static final String CHANNEL_DESC = "实时显示校准时间 (超级岛)";
+    public static final int NOTIFICATION_ID = 20240320;
 
     private final Context mContext;
     private final NotificationManager mNotifMgr;
-    private final boolean mIsHyperOS;
+    private final ShizukuIslandHelper mShizukuHelper;
 
-    // 缓存: 避免每次更新都重复检测
+    private boolean mIsHyperOS;
     private static Boolean sCachedIsHyperOS;
+
+    // 缓存: 上一次的 JSON，避免重复构建
+    private String mCachedParamJson = "";
+    private String mLastTimeStr = "";
+    private String mLastMillisStr = "";
 
     public SuperIslandManager(Context context) {
         mContext = context.getApplicationContext();
         mNotifMgr = (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
         mIsHyperOS = detectHyperOS();
+        mShizukuHelper = new ShizukuIslandHelper(mContext);
 
-        Log.d(TAG, "SuperIslandManager initialized | SDK: " + Build.VERSION.SDK_INT
-                + " | Device: " + Build.MANUFACTURER + " " + Build.MODEL
-                + " | HyperOS: " + mIsHyperOS);
+        createChannel();
+
+        Log.d(TAG, "SuperIslandManager v2 initialized | SDK=" + Build.VERSION.SDK_INT
+                + " | Device=" + Build.MANUFACTURER + " " + Build.MODEL
+                + " | HyperOS=" + mIsHyperOS);
     }
 
     // =============================================
-    //  检测 HyperOS (带缓存)
+    //  生命周期
     // =============================================
 
     /**
-     * 检测是否为小米 HyperOS / MIUI 系统
-     * 结果在进程内缓存，避免重复反射
+     * 初始化 Shizuku 连接和白名单绕过
+     * 建议在 Service.onCreate() 中调用
      */
-    private static synchronized boolean detectHyperOS() {
-        if (sCachedIsHyperOS != null) return sCachedIsHyperOS;
+    public void init() {
+        if (mIsHyperOS) {
+            mShizukuHelper.init();
+            Log.d(TAG, "Shizuku helper initialized | available=" + mShizukuHelper.isShizukuAvailable()
+                    + " | permission=" + mShizukuHelper.isPermissionGranted());
+        }
+    }
 
-        try {
-            Class<?> clazz = Class.forName("android.os.SystemProperties");
-            String prop = (String) clazz.getMethod("get", String.class)
-                    .invoke(null, "ro.mi.os.version.incremental");
-            if (prop != null && !prop.isEmpty()) {
-                Log.d("SuperIslandManager", "HyperOS version: " + prop);
-                sCachedIsHyperOS = true;
-                return true;
-            }
-        } catch (Exception ignored) {}
-
-        String manufacturer = Build.MANUFACTURER.toLowerCase();
-        sCachedIsHyperOS = manufacturer.contains("xiaomi")
-                || manufacturer.contains("redmi")
-                || manufacturer.contains("poco");
-        return sCachedIsHyperOS;
+    /**
+     * 销毁
+     */
+    public void destroy() {
+        mShizukuHelper.destroy();
+        hide();
     }
 
     // =============================================
-    //  公共 API
+    //  状态查询
     // =============================================
 
     public boolean isHyperOS() {
@@ -98,14 +101,41 @@ public class SuperIslandManager {
     }
 
     /**
-     * 是否支持超级岛 (需要 HyperOS + Android 12+)
+     * 是否支持超级岛
+     * HyperOS + Android 12+
      */
     public boolean isSupported() {
         return mIsHyperOS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
     }
 
     /**
-     * 将小米焦点通知 extras 注入到通知中
+     * Shizuku 是否已就绪（可用 + 权限已授予）
+     */
+    public boolean isShizukuReady() {
+        return mShizukuHelper.isShizukuAvailable() && mShizukuHelper.isPermissionGranted();
+    }
+
+    /**
+     * 白名单是否已绕过
+     */
+    public boolean isWhitelistBypassed() {
+        return mShizukuHelper.isWhitelistBypassed();
+    }
+
+    /**
+     * Shizuku 助手引用（供 Activity 请求权限时使用）
+     */
+    public ShizukuIslandHelper getShizukuHelper() {
+        return mShizukuHelper;
+    }
+
+    // =============================================
+    //  公共 API
+    // =============================================
+
+    /**
+     * 将焦点通知 extras 注入到通知中
+     * 供 LiveUpdateManager 调用
      */
     public void applyFocusExtras(Notification notification,
                                  String timeStr, String millisStr,
@@ -113,15 +143,17 @@ public class SuperIslandManager {
         if (!isSupported()) return;
 
         try {
-            Bundle focusExtras = buildFocusExtrasV2(timeStr, millisStr, source);
-            notification.extras.putAll(focusExtras);
+            String json = buildParamJson(timeStr, millisStr, source);
+            if (json != null) {
+                notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, json);
+            }
         } catch (Exception e) {
             Log.e(TAG, "applyFocusExtras failed: " + e.getMessage());
         }
     }
 
     /**
-     * 显示独立的超级岛通知
+     * 显示/更新超级岛通知
      */
     public void show(String time, String millis, String source) {
         if (!isSupported()) return;
@@ -136,7 +168,7 @@ public class SuperIslandManager {
     }
 
     /**
-     * 更新超级岛通知
+     * 更新超级岛通知 (与 show 相同，带节流)
      */
     public void update(String time, String millis, String source) {
         show(time, millis, source);
@@ -149,54 +181,70 @@ public class SuperIslandManager {
         mNotifMgr.cancel(NOTIFICATION_ID);
     }
 
-    public void destroy() {
-        hide();
-    }
-
     // =============================================
-    //  构建小米焦点通知数据 (V2 格式)
+    //  V3 焦点通知构建
     // =============================================
 
     /**
-     * 构建焦点通知 Bundle (V2 格式)
+     * 使用 FocusParamBuilder 构建 V3 格式的 miui.focus.param JSON
      */
-    private Bundle buildFocusExtrasV2(String timeStr, String millisStr, String source) {
-        Bundle extras = new Bundle();
-
-        try {
-            JSONObject template = new JSONObject();
-
-            // ticker — 状态栏显示的摘要
-            template.put("ticker", timeStr + millisStr);
-
-            // enableFloat — 启用浮窗/超级岛
-            template.put("enableFloat", true);
-
-            // baseInfo — 基础文本组件
-            JSONObject baseInfo = new JSONObject();
-            baseInfo.put("type", 1); // INFO_TYPE_TEXT
-            baseInfo.put("title", "校准时间 " + timeStr);
-            baseInfo.put("content", source + " | " + millisStr);
-            template.put("baseInfo", baseInfo);
-
-            // hintInfo — 提示/按钮组件
-            JSONObject hintInfo = new JSONObject();
-            hintInfo.put("type", 1);
-            hintInfo.put("title", "查看详情");
-            hintInfo.put("content", "点击打开悬浮时间");
-            template.put("hintInfo", hintInfo);
-
-            extras.putString(FOCUS_PARAM, template.toString());
-
-        } catch (Exception e) {
-            Log.e(TAG, "buildFocusExtrasV2 failed: " + e.getMessage());
+    private String buildParamJson(String timeStr, String millisStr, String source) {
+        // 节流: 时间字符串相同时跳过
+        if (timeStr.equals(mLastTimeStr) && millisStr.equals(mLastMillisStr)
+                && !mCachedParamJson.isEmpty()) {
+            return mCachedParamJson;
         }
 
-        return extras;
+        String displayTime = timeStr + millisStr;
+        String ticker = displayTime + " | " + source;
+
+        // 计算秒数作为进度（0-59）
+        int second = 0;
+        try {
+            String[] parts = timeStr.split(":");
+            if (parts.length >= 3) {
+                second = Integer.parseInt(parts[2]);
+            }
+        } catch (NumberFormatException ignored) {}
+
+        int progress = (int) ((second / 59.0) * 100);
+
+        FocusParamBuilder builder = new FocusParamBuilder(mContext)
+                .setBusiness("float_time")
+                .setEnableFloat(true)
+                .setUpdatable(true)
+                .setIslandFirstFloat(false)
+                .setAodTitle(displayTime)
+                .setTicker(ticker)
+                // chatInfo — 通知栏
+                .setChatTitle("校准时间 " + timeStr)
+                .setChatContent(source + " | " + millisStr)
+                .setChatAppIconPkg(mContext.getPackageName())
+                // island — 超级岛展开态
+                .setIslandTitle(displayTime)
+                .setIslandTextTitle(source)
+                .setShowHighlightColor(false)
+                // smallIsland — 胶囊形态（秒数进度环）
+                .setProgress(progress)
+                .setProgressColor("#4CAF50")
+                .setProgressColorUnreach("#333333")
+                // shareData
+                .setShareEnabled(true)
+                .setShareTitle("悬浮时间")
+                .setShareContent("校准时间 " + displayTime + " (" + source + ")");
+
+        String json = builder.buildParamJson();
+
+        // 更新缓存
+        mLastTimeStr = timeStr;
+        mLastMillisStr = millisStr;
+        mCachedParamJson = json;
+
+        return json;
     }
 
     /**
-     * 构建通知 (独立显示用)
+     * 构建完整通知
      */
     private Notification buildNotification(String time, String millis, String source) {
         PendingIntent pendingIntent = PendingIntent.getActivity(
@@ -206,9 +254,12 @@ public class SuperIslandManager {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
+        String timeStr = time.isEmpty() ? "--:--:--" : time;
+        String millisStr = millis.isEmpty() ? ".000" : "." + millis;
+
         Notification notification = new NotificationCompat.Builder(mContext, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle(time + millis)
+                .setContentTitle(timeStr + millisStr)
                 .setContentText(source)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -223,18 +274,82 @@ public class SuperIslandManager {
                                 : NotificationCompat.FOREGROUND_SERVICE_DEFAULT)
                 .build();
 
-        // 注入焦点通知 extras
-        applyFocusExtras(notification, time, millis, source);
+        // 注入 V3 焦点通知
+        applyFocusExtras(notification, timeStr, millisStr, source);
 
         return notification;
     }
 
     // =============================================
-    //  结果监听器
+    //  通知渠道
     // =============================================
 
-    public interface OnResultListener {
-        void onSuccess(String message);
-        void onFailure(String error);
+    private void createChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationChannel ch = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH);
+        ch.setDescription(CHANNEL_DESC);
+        ch.setShowBadge(false);
+        ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        ch.enableLights(false);
+        ch.setSound(null, null);
+        ch.setVibrationPattern(null);
+        mNotifMgr.createNotificationChannel(ch);
+    }
+
+    // =============================================
+    //  HyperOS 检测
+    // =============================================
+
+    private static synchronized boolean detectHyperOS() {
+        if (sCachedIsHyperOS != null) return sCachedIsHyperOS;
+
+        try {
+            Class<?> clazz = Class.forName("android.os.SystemProperties");
+            String prop = (String) clazz.getMethod("get", String.class)
+                    .invoke(null, "ro.mi.os.version.incremental");
+            if (prop != null && !prop.isEmpty()) {
+                Log.d(TAG, "HyperOS version: " + prop);
+                sCachedIsHyperOS = true;
+                return true;
+            }
+        } catch (Exception ignored) {}
+
+        String manufacturer = Build.MANUFACTURER.toLowerCase();
+        sCachedIsHyperOS = manufacturer.contains("xiaomi")
+                || manufacturer.contains("redmi")
+                || manufacturer.contains("poco");
+        return sCachedIsHyperOS;
+    }
+
+    /**
+     * 获取 HyperOS 版本号
+     */
+    public static String getHyperOSVersion() {
+        try {
+            Class<?> clazz = Class.forName("android.os.SystemProperties");
+            String prop = (String) clazz.getMethod("get", String.class)
+                    .invoke(null, "ro.mi.os.version.name");
+            if (prop != null && !prop.isEmpty()) return prop;
+
+            prop = (String) clazz.getMethod("get", String.class)
+                    .invoke(null, "ro.mi.os.version.incremental");
+            if (prop != null && !prop.isEmpty()) return prop;
+        } catch (Exception ignored) {}
+        return "Unknown";
+    }
+
+    /**
+     * 检查是否支持超级岛（系统属性级别）
+     */
+    public static boolean isIslandSupportedBySystem() {
+        try {
+            Class<?> clazz = Class.forName("android.os.SystemProperties");
+            String prop = (String) clazz.getMethod("get", String.class)
+                    .invoke(null, "persist.sys.feature.island");
+            return "true".equals(prop);
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

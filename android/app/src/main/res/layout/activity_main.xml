@@ -170,6 +170,20 @@
 
         </LinearLayout>
 
+        <!-- Shizuku 超级岛状态 -->
+        <TextView
+            android:id="@+id/shizukuStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🏝️ 超级岛状态检测中..."
+            android:textSize="13sp"
+            android:textColor="#666666"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="4dp"
+            android:padding="16dp"
+            android:background="#F5F5F5"
+            android:layout_marginBottom="20dp"/>
+
         <!-- 使用说明 -->
         <TextView
             android:layout_width="wrap_content"

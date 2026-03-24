@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private RadioButton themeLight;
     private RadioButton themeDark;
     private Switch floatWindowSwitch;  // ✅ 悬浮窗开关
+    private TextView shizukuStatusText; // Shizuku 超级岛状态
     
     private ActivityResultLauncher<Intent> overlayPermissionLauncher;
     private Handler mHandler;
@@ -133,8 +134,12 @@ public class MainActivity extends AppCompatActivity {
         
         // 设置版本信息
         if (versionText != null) {
-            versionText.setText("FloatTime v1.3.0");
+            versionText.setText("FloatTime v1.3.0 (Shizuku)");
         }
+        
+        // Shizuku 超级岛状态
+        shizukuStatusText = findViewById(R.id.shizukuStatusText);
+        updateShizukuStatus();
         
         // 设置主题选择并应用保存的主题
         setupThemeSelector();
@@ -275,10 +280,51 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * 更新 Shizuku 超级岛状态显示
+     */
+    private void updateShizukuStatus() {
+        if (shizukuStatusText == null) return;
+        
+        try {
+            SuperIslandManager sim = mLiveUpdateManager != null 
+                    ? mLiveUpdateManager.getSuperIslandManager() : null;
+            
+            if (sim == null || !sim.isHyperOS()) {
+                shizukuStatusText.setText("📱 非小米设备，无需超级岛");
+                return;
+            }
+            
+            String version = SuperIslandManager.getHyperOSVersion();
+            boolean islandSupported = SuperIslandManager.isIslandSupportedBySystem();
+            boolean shizukuReady = sim.isShizukuReady();
+            boolean whitelistBypassed = sim.isWhitelistBypassed();
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("🏝️ 超级岛状态:\n");
+            sb.append("  HyperOS: ").append(version).append("\n");
+            sb.append("  系统支持: ").append(islandSupported ? "✅" : "❌").append("\n");
+            sb.append("  Shizuku: ").append(shizukuReady ? "✅ 已连接" : "⚠️ 未连接").append("\n");
+            sb.append("  白名单: ").append(whitelistBypassed ? "✅ 已绕过" : "❌ 未绕过");
+            
+            if (!shizukuReady) {
+                sb.append("\n\n💡 请安装 Shizuku 应用并启动服务");
+            } else if (!whitelistBypassed) {
+                sb.append("\n\n⏳ 正在尝试绕过白名单...");
+            }
+            
+            shizukuStatusText.setText(sb.toString());
+            
+        } catch (Exception e) {
+            shizukuStatusText.setText("⚠️ 状态检测异常: " + e.getMessage());
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         updateStatus();
+        updateShizukuStatus(); // 每次回到前台刷新 Shizuku 状态
     }
 
     @Override

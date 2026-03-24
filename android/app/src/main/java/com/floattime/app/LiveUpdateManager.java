@@ -73,13 +73,25 @@ public class LiveUpdateManager {
         mSupportsProgressStyle = Build.VERSION.SDK_INT >= 36;
         mSuperIsland = new SuperIslandManager(mContext);
 
+        // 初始化 Shizuku 白名单绕过
+        mSuperIsland.init();
+
         if (mSupportsProgressStyle && !sReflectionCached) {
             cacheReflection();
         }
 
         Log.d(TAG, "LiveUpdateManager initialized | API=" + Build.VERSION.SDK_INT
                 + " | ProgressStyle=" + mSupportsProgressStyle
-                + " | HyperOS=" + mSuperIsland.isHyperOS());
+                + " | HyperOS=" + mSuperIsland.isHyperOS()
+                + " | Shizuku=" + mSuperIsland.isShizukuReady()
+                + " | WhitelistBypass=" + mSuperIsland.isWhitelistBypassed());
+    }
+
+    /**
+     * 获取超级岛管理器引用（供外部查询 Shizuku 状态等）
+     */
+    public SuperIslandManager getSuperIslandManager() {
+        return mSuperIsland;
     }
 
     // ================================================================
