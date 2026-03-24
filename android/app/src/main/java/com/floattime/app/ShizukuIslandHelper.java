@@ -8,7 +8,7 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
-import dev.rikka.shizuku.Shizuku;
+import rikka.shizuku.Shizuku;
 
 /**
  * Shizuku 超级岛白名单绕过助手
