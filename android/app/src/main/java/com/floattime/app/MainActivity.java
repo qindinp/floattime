@@ -133,7 +133,7 @@ public class MainActivity extends AppCompatActivity {
         
         // 设置版本信息
         if (versionText != null) {
-            versionText.setText("FloatTime v1.2.1");
+            versionText.setText("FloatTime v1.3.0");
         }
         
         // 设置主题选择并应用保存的主题
@@ -215,14 +215,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyThemeMode(int mode) {
-        boolean isNight = false;
-        if (mode == 0) {
-            // 自动模式
-            int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-            isNight = (hour >= 19 || hour < 7);
-        } else {
-            isNight = (mode == 2);
-        }
+        boolean isNight = FloatTimeService.calcNightMode(mode);
         
         // ✅ 参考 Android 官方设计标准 - 主界面使用纯黑色
         int bgColor = isNight ? 0xFF121212 : 0xFFFFFFFF;      // 纯黑背景
@@ -384,7 +377,8 @@ public class MainActivity extends AppCompatActivity {
             public void run() {
                 updateMainTime();
                 if (mHandler != null) {
-                    mHandler.postDelayed(this, 50);
+                    // 优化: 500ms 足够主界面时间显示 (原来 50ms 太频繁)
+                    mHandler.postDelayed(this, 500);
                 }
             }
         };
