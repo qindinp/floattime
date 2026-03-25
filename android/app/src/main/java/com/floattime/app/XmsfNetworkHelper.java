@@ -11,16 +11,17 @@ import rikka.shizuku.Shizuku;
 import rikka.shizuku.Shizuku.UserServiceArgs;
 
 /**
- * xmsf (小米推送) 网络控制助手 v2
+ * xmsf (小米推送) 网络控制助手 v3
  *
  * 通过 Shizuku 特权通道临时断开 xmsf 网络，
  * 阻止系统向小米服务器校验焦点通知白名单。
  *
  * 参考: Capsulyric XmsfNetworkHelper
  *
- * v2 改进：
+ * v3 改进：
  * - UserServiceArgs: daemon(true) + version(2)，与 Capsulyric 一致
  * - 重试机制: MAX_RETRIES=2, RETRY_DELAY=500ms
+ * - getOrBindService 超时从 2s 降到 500ms，避免阻塞通知线程
  * - 更完善的错误处理
  */
 public class XmsfNetworkHelper {
@@ -29,6 +30,10 @@ public class XmsfNetworkHelper {
     private static final String XMSF_PACKAGE = "com.xiaomi.xmsf";
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_DELAY_MS = 500L;
+
+    // getOrBindService 最大等待时间（从 2000ms 降到 500ms）
+    private static final long BIND_WAIT_TOTAL_MS = 500L;
+    private static final long BIND_WAIT_INTERVAL_MS = 50L;
 
     private static IPrivilegedService sPrivilegedService;
     private static UserServiceArgs sUserServiceArgs;
@@ -54,10 +59,10 @@ public class XmsfNetworkHelper {
         try {
             sUserServiceArgs = new UserServiceArgs(
                     new ComponentName(context.getPackageName(), PrivilegedServiceImpl.class.getName()))
-                    .daemon(true)                        // 保持进程存活，参考 Capsulyric
+                    .daemon(true)
                     .processNameSuffix("privileged")
                     .debuggable(false)
-                    .version(2);                         // version 2，参考 Capsulyric
+                    .version(2);
             Shizuku.bindUserService(sUserServiceArgs, sConnection);
             Log.d(TAG, "Binding Shizuku UserService (daemon=true, version=2)...");
         } catch (Exception e) {
@@ -81,11 +86,6 @@ public class XmsfNetworkHelper {
 
     /**
      * 设置 xmsf 网络开关
-     *
-     * 参考 Capsulyric XmsfNetworkHelper.setXmsfNetworkingEnabled():
-     *   - 使用 requireShizukuPermissionGranted 包裹
-     *   - MAX_RETRIES = 2, RETRY_DELAY = 500ms
-     *   - 捕获 DeadObjectException 并重试
      */
     public static boolean setXmsfNetworkingEnabled(Context context, boolean enabled) {
         try {
@@ -99,7 +99,6 @@ public class XmsfNetworkHelper {
 
             Log.d(TAG, "setXmsfNetworkingEnabled: enabled=" + enabled + ", uid=" + uid);
 
-            // 带重试的调用（参考 Capsulyric 的 retry loop）
             Exception lastError = null;
             for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
                 try {
@@ -148,11 +147,13 @@ public class XmsfNetworkHelper {
     }
 
     /**
-     * 获取已绑定的 service，如果没有则尝试绑定并等待
+     * 获取已绑定的 service，如果没有则尝试绑定并等待（最多 500ms）
+     *
+     * v3 改进：从 2000ms 降到 500ms，避免阻塞通知发送线程。
+     * 如果 500ms 内没连上就快速返回 null，让调用方走降级路径。
      */
     private static IPrivilegedService getOrBindService(Context context) {
         if (sPrivilegedService != null) {
-            // 快速 ping 检查连接是否还活着
             try {
                 if (sPrivilegedService.asBinder().pingBinder()) {
                     return sPrivilegedService;
@@ -163,27 +164,31 @@ public class XmsfNetworkHelper {
         }
 
         // 尝试绑定
-        Log.w(TAG, "PrivilegedService not connected, attempting bind...");
+        Log.d(TAG, "PrivilegedService not connected, attempting bind...");
         bindService(context);
 
-        // 等待连接（最多 2 秒）
-        for (int i = 0; i < 20; i++) {
+        // 等待连接（最多 500ms）
+        long waited = 0;
+        while (waited < BIND_WAIT_TOTAL_MS) {
             try {
-                Thread.sleep(100);
+                Thread.sleep(BIND_WAIT_INTERVAL_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return null;
             }
+            waited += BIND_WAIT_INTERVAL_MS;
+
             if (sPrivilegedService != null) {
                 try {
                     if (sPrivilegedService.asBinder().pingBinder()) {
+                        Log.d(TAG, "Service connected after " + waited + "ms");
                         return sPrivilegedService;
                     }
                 } catch (Exception ignored) {}
             }
         }
 
-        Log.e(TAG, "Still not connected after bind attempt");
+        Log.w(TAG, "Still not connected after " + BIND_WAIT_TOTAL_MS + "ms, giving up");
         return null;
     }
 }

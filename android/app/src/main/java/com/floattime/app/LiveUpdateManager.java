@@ -362,7 +362,7 @@ public class LiveUpdateManager {
     //  串行化通知发送（xmsf 网络断开保护）
     // ================================================================
 
-    private static final long NETWORK_CUT_DURATION_MS = 50L;
+    private static final long NETWORK_CUT_DURATION_MS = 100L; // v3: 从 50ms 增加到 100ms
 
     /**
      * 发送通知，HyperOS 下带 xmsf 网络断开保护

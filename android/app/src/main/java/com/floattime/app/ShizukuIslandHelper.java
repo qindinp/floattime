@@ -13,14 +13,13 @@ import androidx.annotation.NonNull;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import rikka.shizuku.Shizuku;
 import rikka.sui.Sui;
 
 /**
- * Shizuku 超级岛白名单绕过助手 v2
+ * Shizuku 超级岛白名单绕过助手 v3
  *
  * 参考 Capsulyric 实现:
  * 1. 同步断网方法 setXmsfNetworkingSync（保证时序正确）
@@ -28,13 +27,19 @@ import rikka.sui.Sui;
  * 3. XmsfNetworkHelper 断开 xmsf 网络绕过白名单
  * 4. 多策略超级岛检测
  * 5. Shizuku 13.x API_V23 权限兼容
+ *
+ * v3 改进：
+ * - init() 时立即尝试绑定 UserService，不等权限结果
+ * - setXmsfNetworkingSync 超时从 3s 降到 2s
+ * - 权限授予后自动执行 bypass 并立即同步断网一次
+ * - 更详细的日志用于排查问题
  */
 public class ShizukuIslandHelper {
 
     private static final String TAG = "ShizukuIslandHelper";
     private static final String FOCUS_PROVIDER_URI = "content://miui.statusbar.notification.public";
     private static final int SHIZUKU_PERMISSION_REQUEST_CODE = 1001;
-    private static final long IPC_TIMEOUT_MS = 3000L;
+    private static final long IPC_TIMEOUT_MS = 2000L;  // v3: 从 3s 降到 2s
 
     private final Context mContext;
     private final String mPackageName;
@@ -57,6 +62,8 @@ public class ShizukuIslandHelper {
             () -> {
                 Log.d(TAG, "Shizuku binder received");
                 mShizukuAvailable = true;
+                // v3: binder 到达后立即绑定 UserService，不等权限检查
+                XmsfNetworkHelper.bindService(mContext);
                 checkPermissionAsync();
             };
 
@@ -65,15 +72,27 @@ public class ShizukuIslandHelper {
                 Log.d(TAG, "Shizuku binder dead");
                 mShizukuAvailable = false;
                 mShizukuPermissionGranted = false;
+                mWhitelistBypassed = false;
             };
 
     private final Shizuku.OnRequestPermissionResultListener mPermissionListener =
             (requestCode, grantResult) -> {
                 if (requestCode == SHIZUKU_PERMISSION_REQUEST_CODE) {
-                    mShizukuPermissionGranted = grantResult == PackageManager.PERMISSION_GRANTED;
-                    Log.d(TAG, "Permission result: " + mShizukuPermissionGranted);
-                    if (mShizukuPermissionGranted) {
-                        tryBypassWhitelist();
+                    boolean granted = grantResult == PackageManager.PERMISSION_GRANTED;
+                    mShizukuPermissionGranted = granted;
+                    Log.d(TAG, "Permission result: " + granted);
+                    if (granted) {
+                        // v3: 权限授予后立即执行同步 bypass，而不是异步
+                        sWorkerHandler.post(() -> {
+                            try {
+                                boolean result = XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, false);
+                                mWhitelistBypassed = result;
+                                Log.d(TAG, "Post-permission bypass: " + (result ? "OK" : "FAILED"));
+                            } catch (Exception e) {
+                                Log.e(TAG, "Post-permission bypass failed: " + e.getMessage());
+                                mWhitelistBypassed = false;
+                            }
+                        });
                     }
                 }
             };
@@ -100,11 +119,21 @@ public class ShizukuIslandHelper {
         }
 
         if (Shizuku.getBinder() != null) {
+            // v3: binder 已存在时也先绑定 UserService
+            XmsfNetworkHelper.bindService(mContext);
             checkPermissionAsync();
         }
     }
 
     public void destroy() {
+        // 退出前恢复 xmsf 网络
+        if (isReady()) {
+            try {
+                XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, true);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to restore xmsf network on destroy: " + e.getMessage());
+            }
+        }
         Shizuku.removeBinderReceivedListener(mBinderReceivedListener);
         Shizuku.removeBinderDeadListener(mBinderDeadListener);
         Shizuku.removeRequestPermissionResultListener(mPermissionListener);
@@ -124,8 +153,17 @@ public class ShizukuIslandHelper {
                 Log.d(TAG, "Permission: " + granted);
 
                 if (granted) {
+                    // v3: 已有权限时立即执行 bypass
                     XmsfNetworkHelper.bindService(mContext);
-                    tryBypassWhitelist();
+                    sWorkerHandler.post(() -> {
+                        try {
+                            boolean result = XmsfNetworkHelper.setXmsfNetworkingEnabled(mContext, false);
+                            mWhitelistBypassed = result;
+                            Log.d(TAG, "Init-time bypass: " + (result ? "OK" : "FAILED"));
+                        } catch (Exception e) {
+                            Log.e(TAG, "Init-time bypass failed: " + e.getMessage());
+                        }
+                    });
                 } else {
                     mMainHandler.post(() -> {
                         try {
@@ -146,7 +184,8 @@ public class ShizukuIslandHelper {
      */
     public void tryBypassWhitelist() {
         if (!mShizukuAvailable || !mShizukuPermissionGranted) {
-            Log.w(TAG, "Shizuku not ready, skip bypass");
+            Log.w(TAG, "Shizuku not ready, skip bypass (available=" + mShizukuAvailable
+                    + ", permission=" + mShizukuPermissionGranted + ")");
             return;
         }
 
@@ -165,17 +204,14 @@ public class ShizukuIslandHelper {
     /**
      * 同步断开/恢复 xmsf 网络（阻塞当前线程直到操作完成）
      *
-     * 参考 Capsulyric 的 suspend fun setXmsfNetworkingEnabled():
-     *   - 在 Shizuku 权限检查通过后执行
-     *   - 带重试机制 (MAX_RETRIES=2, RETRY_DELAY=500ms)
-     *   - 返回操作结果
-     *
      * @param enabled true=恢复网络, false=断开网络
      * @return 操作是否成功
      */
     public boolean setXmsfNetworkingSync(boolean enabled) {
         if (!mShizukuAvailable || !mShizukuPermissionGranted) {
-            Log.w(TAG, "Shizuku not ready, cannot set xmsf networking");
+            Log.w(TAG, "Shizuku not ready, cannot set xmsf networking"
+                    + " (available=" + mShizukuAvailable
+                    + ", permission=" + mShizukuPermissionGranted + ")");
             return false;
         }
 
@@ -197,7 +233,9 @@ public class ShizukuIslandHelper {
         try {
             if (latch.await(IPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 Boolean result = resultRef.get();
-                return result != null && result;
+                boolean ok = result != null && result;
+                Log.d(TAG, "setXmsfNetworkingSync(" + enabled + ") = " + ok);
+                return ok;
             } else {
                 Log.e(TAG, "setXmsfNetworkingSync timed out after " + IPC_TIMEOUT_MS + "ms");
                 return false;
@@ -210,7 +248,6 @@ public class ShizukuIslandHelper {
 
     /**
      * 在发送通知前临时断开 xmsf 网络（异步版本，保留兼容）
-     * 注意：SuperIslandManager v3 已改用 setXmsfNetworkingSync 实现串行时序
      */
     public void preNotificationHook() {
         if (!mShizukuAvailable || !mShizukuPermissionGranted) return;
@@ -224,7 +261,7 @@ public class ShizukuIslandHelper {
                     } catch (Exception e) {
                         Log.e(TAG, "Restore xmsf network failed: " + e.getMessage());
                     }
-                }, 50);
+                }, 100);  // v3: 从 50ms 增加到 100ms
             } catch (Exception e) {
                 Log.e(TAG, "preNotificationHook failed: " + e.getMessage());
             }
@@ -261,7 +298,7 @@ public class ShizukuIslandHelper {
             if ("true".equals(val)) return true;
         } catch (Exception ignored) {}
 
-        // 策略2: Settings.System 焦点协议版本 (Capsulyric 方法)
+        // 策略2: Settings.System 焦点协议版本
         try {
             int protocol = android.provider.Settings.System.getInt(
                     mContext.getContentResolver(), "notification_focus_protocol", 0);
