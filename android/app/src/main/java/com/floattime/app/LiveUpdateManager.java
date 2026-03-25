@@ -294,12 +294,25 @@ public class LiveUpdateManager {
         // 注入小米超级岛 V3 焦点通知 JSON
         try {
             String focusJson = mSuperIsland.buildFocusParamJson(timeStr, millisStr, source);
+            Log.d(TAG, "[DEBUG] buildFocusParamJson result: " + (focusJson != null ? focusJson.substring(0, Math.min(200, focusJson.length())) : "NULL"));
             if (focusJson != null) {
                 notification.extras.putString(FocusParamBuilder.KEY_FOCUS_PARAM, focusJson);
+                Log.d(TAG, "[DEBUG] Focus param injected into notification extras");
+            } else {
+                Log.w(TAG, "[DEBUG] Focus param is NULL — super island will NOT work!");
             }
         } catch (Exception e) {
-            Log.e(TAG, "SuperIsland focus param injection failed: " + e.getMessage());
+            Log.e(TAG, "[DEBUG] SuperIsland focus param injection failed: " + e.getMessage(), e);
         }
+
+        // 调试: 检查设备焦点通知能力
+        Log.d(TAG, "[DEBUG] isHyperOS=" + mSuperIsland.isHyperOS()
+                + " | isSupported=" + mSuperIsland.isSupported()
+                + " | isShizukuReady=" + mSuperIsland.isShizukuReady()
+                + " | isWhitelistBypassed=" + mSuperIsland.isWhitelistBypassed()
+                + " | islandSupported=" + mSuperIsland.getShizukuHelper().isIslandSupported()
+                + " | focusProtocol=" + mSuperIsland.getShizukuHelper().getFocusProtocolVersion()
+                + " | canShowFocus=" + mSuperIsland.getShizukuHelper().checkFocusPermission());
 
         // 发送通知 — HyperOS 下带 xmsf 网络断开保护
         notifyWithNetworkCut(notification);
@@ -375,28 +388,39 @@ public class LiveUpdateManager {
         if (shizuku != null && shizuku.isReady()) {
             try {
                 // ① 同步断开 xmsf 网络
+                long t0 = System.currentTimeMillis();
                 boolean disabled = shizuku.setXmsfNetworkingSync(false);
-                Log.d(TAG, "notifyWithNetworkCut: xmsf disabled=" + disabled);
+                long t1 = System.currentTimeMillis();
+                Log.d(TAG, "[DEBUG] notifyWithNetworkCut: xmsf disabled=" + disabled + " (took " + (t1-t0) + "ms)");
 
                 // ② 发送通知
                 mNotifMgr.notify(ID_CLOCK, notification);
+                long t2 = System.currentTimeMillis();
+                Log.d(TAG, "[DEBUG] notifyWithNetworkCut: notification sent (took " + (t2-t1) + "ms)");
 
-                // ③ 等待 50ms
+                // 检查 extras 是否包含焦点参数
+                String focusParam = notification.extras.getString(FocusParamBuilder.KEY_FOCUS_PARAM);
+                Log.d(TAG, "[DEBUG] Notification extras has focus param: " + (focusParam != null ? "YES (" + focusParam.length() + " chars)" : "NO"));
+
+                // ③ 等待
                 Thread.sleep(NETWORK_CUT_DURATION_MS);
 
                 // ④ 恢复网络
+                long t3 = System.currentTimeMillis();
                 shizuku.setXmsfNetworkingSync(true);
-                Log.d(TAG, "notifyWithNetworkCut: xmsf restored");
+                long t4 = System.currentTimeMillis();
+                Log.d(TAG, "[DEBUG] notifyWithNetworkCut: xmsf restored (took " + (t4-t3) + "ms, total=" + (t4-t0) + "ms)");
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 shizuku.setXmsfNetworkingSync(true);
             } catch (Exception e) {
-                Log.e(TAG, "notifyWithNetworkCut failed: " + e.getMessage());
+                Log.e(TAG, "[DEBUG] notifyWithNetworkCut failed: " + e.getMessage(), e);
                 shizuku.setXmsfNetworkingSync(true);
             }
         } else {
             // 非 HyperOS 或 Shizuku 未就绪，直接发送
+            Log.w(TAG, "[DEBUG] notifyWithNetworkCut: Shizuku NOT ready, sending notification WITHOUT network cut (shizuku=" + shizuku + ", ready=" + (shizuku != null ? shizuku.isReady() : "N/A") + ")");
             mNotifMgr.notify(ID_CLOCK, notification);
         }
     }

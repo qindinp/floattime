@@ -300,15 +300,21 @@ public class MainActivity extends AppCompatActivity {
             int focusProtocol = sim.getShizukuHelper().getFocusProtocolVersion();
             boolean shizukuReady = sim.isShizukuReady();
             boolean whitelistBypassed = sim.isWhitelistBypassed();
+            boolean canShowFocus = sim.getShizukuHelper().checkFocusPermission();
             
             StringBuilder sb = new StringBuilder();
-            sb.append("🏝️ 超级岛状态:\n");
+            sb.append("🏝️ 超级岛状态 [DEBUG]:\n");
             sb.append("  HyperOS: ").append(version).append("\n");
             sb.append("  系统支持: ").append(islandSupported ? "✅" : "❌").append("\n");
             sb.append("  焦点协议: v").append(focusProtocol).append("\n");
+            sb.append("  canShowFocus: ").append(canShowFocus ? "✅ YES" : "❌ NO").append("\n");
             sb.append("  Shizuku: ").append(shizukuReady ? "✅ 已连接" : "⚠️ 未连接").append("\n");
             sb.append("  白名单: ").append(whitelistBypassed ? "✅ 已绕过" : "❌ 未绕过");
             
+            if (!canShowFocus) {
+                sb.append("\n\n⚠️ canShowFocus=false → 焦点通知未对本 app 开放！");
+                sb.append("\n请检查: 设置→通知→焦点通知→FloatTime");
+            }
             if (!shizukuReady) {
                 sb.append("\n\n💡 请安装 Shizuku 应用并启动服务");
             } else if (!whitelistBypassed) {
@@ -317,8 +323,16 @@ public class MainActivity extends AppCompatActivity {
             
             shizukuStatusText.setText(sb.toString());
             
+            Log.d(TAG, "[DEBUG] Shizuku status: version=" + version
+                    + " islandSupported=" + islandSupported
+                    + " focusProtocol=" + focusProtocol
+                    + " canShowFocus=" + canShowFocus
+                    + " shizukuReady=" + shizukuReady
+                    + " whitelistBypassed=" + whitelistBypassed);
+            
         } catch (Exception e) {
             shizukuStatusText.setText("⚠️ 状态检测异常: " + e.getMessage());
+            Log.e(TAG, "[DEBUG] Shizuku status check failed", e);
         }
     }
 

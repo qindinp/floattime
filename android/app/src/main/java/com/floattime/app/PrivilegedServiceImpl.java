@@ -60,23 +60,24 @@ public class PrivilegedServiceImpl extends IPrivilegedService.Stub {
             sWorkerHandler.post(() -> {
                 try {
                     // 方案 1（优先）：NetworkPolicyManager.setUidPolicy
+                    Log.d(TAG, "[DEBUG] Trying NPM method for uid=" + uid + ", enabled=" + enabled);
                     boolean ok = tryNetworkPolicyManager(uid, enabled);
                     if (ok) {
-                        Log.d(TAG, "✅ NPM succeeded: uid=" + uid + ", enabled=" + enabled);
+                        Log.d(TAG, "[DEBUG] ✅ NPM succeeded: uid=" + uid + ", enabled=" + enabled);
                         resultRef.set(true);
                         return;
                     }
+                    Log.w(TAG, "[DEBUG] ❌ NPM failed, falling back to firewall chains");
 
                     // 方案 2（回退）：防火墙链 WIFI(1) + MOBILE(2)
-                    Log.d(TAG, "NPM failed, falling back to firewall chains");
                     ok = tryFirewallChains(uid, enabled);
                     if (ok) {
-                        Log.d(TAG, "✅ Firewall chains succeeded: uid=" + uid + ", enabled=" + enabled);
+                        Log.d(TAG, "[DEBUG] ✅ Firewall chains succeeded: uid=" + uid + ", enabled=" + enabled);
                         resultRef.set(true);
                         return;
                     }
-
-                    Log.e(TAG, "❌ All methods failed for uid=" + uid);
+                    Log.e(TAG, "[DEBUG] ❌ ALL methods failed for uid=" + uid
+                            + ". Check if setUidPolicy or setUidFirewallRule exists on this device.");
                     resultRef.set(false);
                 } catch (Exception e) {
                     Log.e(TAG, "❌ Operation failed: " + e.getMessage(), e);
@@ -126,9 +127,10 @@ public class PrivilegedServiceImpl extends IPrivilegedService.Stub {
         try {
             IBinder binder = getServiceBinder("netpolicy");
             if (binder == null) {
-                Log.w(TAG, "NetworkPolicyManager binder is null");
+                Log.w(TAG, "[DEBUG] NPM: NetworkPolicyManager binder is null — system service unavailable");
                 return false;
             }
+            Log.d(TAG, "[DEBUG] NPM: got netpolicy binder");
 
             Class<?> stubClass = Class.forName("android.net.INetworkPolicyManager$Stub");
             Method asInterface = stubClass.getMethod("asInterface", IBinder.class);
@@ -168,9 +170,10 @@ public class PrivilegedServiceImpl extends IPrivilegedService.Stub {
         try {
             IBinder binder = getServiceBinder("connectivity");
             if (binder == null) {
-                Log.w(TAG, "ConnectivityService binder is null");
+                Log.w(TAG, "[DEBUG] FW: ConnectivityService binder is null");
                 return false;
             }
+            Log.d(TAG, "[DEBUG] FW: got connectivity binder");
 
             Class<?> stubClass = Class.forName("android.net.IConnectivityManager$Stub");
             Method asInterface = stubClass.getMethod("asInterface", IBinder.class);
