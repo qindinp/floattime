@@ -76,7 +76,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         
         // ✅ 第一步: 启用暗夜模式支持 - 跟随系统设置
-        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO); // v3: 禁用自动跟随，由 applyThemeMode 手动控制
         
         // ✅ 第二步: 初始化 SharedPreferences
         mPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);

@@ -78,7 +78,7 @@
                 android:layout_weight="1"
                 android:text="🔄 跟随系统"
                 android:textSize="12sp"
-                android:checked="true"/>
+                />
 
             <RadioButton
                 android:id="@+id/themeLight"
