@@ -14,7 +14,7 @@
     public <methods>;
 }
 
-# ✅ JSONObject 保留（美团/淘宝时间解析）
+# ✅ JSONObject 保留（淘宝/美团时间解析）
 -keep public class org.json.** {
     public protected *;
 }
@@ -22,15 +22,19 @@
     public protected *;
 }
 
-# ✅ Android 系统组件（Manifest 声明的 Service/Receiver）
+# ✅ Android 系统组件（Manifest 声明的 Service/Receiver/Activity）
 -keep class com.floattime.app.FloatTimeService { *; }
+-keep class com.floattime.app.ClockTileService { *; }
 -keep class com.floattime.app.BootReceiver { *; }
 -keep class com.floattime.app.MainActivity { *; }
--keep class com.floattime.app.LiveUpdateManager { *; }
--keep class com.floattime.app.SuperIslandManager { *; }
+-keep class com.floattime.app.IslandManager { *; }
 
-# ✅ 通知渠道
--keep class com.floattime.app.** { *; }
+# ✅ IslandManager 子类（LiveIslandHandler/HyperIslandHandler/NotificationHandler）
+-keep class com.floattime.app.IslandManager$* { *; }
+
+# ✅ AndroidX Window Extensions（Live Island API）
+-keep class androidx.window.** { *; }
+-keep class androidx.activity.** { *; }
 
 # ✅ AndroidX
 -keep class androidx.** { *; }
@@ -40,7 +44,5 @@
 -keep class androidx.core.app.NotificationCompat { *; }
 
 # ✅ R8 优化提示
-# 允许 R8 进一步内联简单类
 -allowaccessmodification
-# 优化非入口点类
 -dontskipnonpubliclibraryclasses

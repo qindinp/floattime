@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var floatWindowSwitch: Switch
 
     private lateinit var prefs: SharedPreferences
-    private lateinit var liveUpdateManager: LiveUpdateManager
+    private lateinit var islandManager: IslandManager
     private lateinit var handler: Handler
     private var timeRunnable: Runnable? = null
 
@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        liveUpdateManager = LiveUpdateManager(this)
+        islandManager = IslandManager(this)
 
         setContentView(R.layout.activity_main)
 
@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        versionText.text = "FloatTime v1.3.0"
+        versionText.text = "FloatTime v1.4.0 | API ${Build.VERSION.SDK_INT}"
 
         setupThemeSelector()
         applyThemeMode(prefs.getInt(KEY_THEME_MODE, 0))
@@ -258,13 +258,10 @@ class MainActivity : AppCompatActivity() {
 
     // ==================== Live Update 公共方法 ====================
 
-    fun isSupported(): Boolean = ::liveUpdateManager.isInitialized && liveUpdateManager.isSupported()
-    fun showTimeSyncing(source: String) = liveUpdateManager.showTimeSyncing(source)
-    fun showTimeSyncSuccess(source: String, offsetMs: Long) = liveUpdateManager.showTimeSyncSuccess(source, offsetMs)
-    fun showTimeSyncFailed(source: String) = liveUpdateManager.showTimeSyncFailed(source)
-    fun startStopwatchLiveUpdate() = liveUpdateManager.startStopwatch()
-    fun pauseStopwatchLiveUpdate() = liveUpdateManager.pauseStopwatch()
-    fun stopStopwatchLiveUpdate() = liveUpdateManager.stopStopwatch()
+    fun isSupported(): Boolean = ::islandManager.isInitialized
+    fun showTimeSyncing(source: String) = islandManager.showSyncStatus(true, source)
+    fun showTimeSyncSuccess(source: String, offsetMs: Long) = islandManager.showSyncResult(true, source, offsetMs)
+    fun showTimeSyncFailed(source: String) = islandManager.showSyncResult(false, source, 0)
 
     private fun displayTimezone() {
         val tz = TimeZone.getDefault()
