@@ -48,6 +48,13 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
 
+    // Material Design（BottomSheetBehavior）
+    implementation("com.google.android.material:material:1.12.0")
+
+    // ConstraintLayout + CoordinatorLayout
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.coordinatorlayout:coordinatorlayout:1.2.0")
+
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // AndroidX Window Extensions（Live Island 核心 API）
