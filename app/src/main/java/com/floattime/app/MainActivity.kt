@@ -63,6 +63,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var themeLight: RadioButton
     private lateinit var themeDark: RadioButton
     private lateinit var floatWindowSwitch: SwitchCompat
+    private lateinit var sourceGroup: RadioGroup
+    private lateinit var sourceLocal: RadioButton
+    private lateinit var sourceTaobao: RadioButton
+    private lateinit var sourceMeituan: RadioButton
+    private lateinit var superIslandSwitch: SwitchCompat
+    private lateinit var superIslandHint: TextView
+    private lateinit var sourceText: TextView
 
     private lateinit var prefs: SharedPreferences
     private lateinit var liveUpdateManager: LiveUpdateManager
@@ -104,6 +111,13 @@ class MainActivity : AppCompatActivity() {
         themeLight = findViewById(R.id.themeLight)
         themeDark = findViewById(R.id.themeDark)
         floatWindowSwitch = findViewById(R.id.floatWindowSwitch)
+        sourceGroup = findViewById(R.id.sourceGroup)
+        sourceLocal = findViewById(R.id.sourceLocal)
+        sourceTaobao = findViewById(R.id.sourceTaobao)
+        sourceMeituan = findViewById(R.id.sourceMeituan)
+        superIslandSwitch = findViewById(R.id.superIslandSwitch)
+        superIslandHint = findViewById(R.id.superIslandHint)
+        sourceText = findViewById(R.id.sourceText)
 
         startBtn.setOnClickListener { checkOverlayPermission() }
         stopBtn.setOnClickListener { stopFloatingService() }
@@ -119,6 +133,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         versionText.text = "FloatTime v1.3.0"
+
+        // 时间来源选择
+        setupSourceSelector()
+
+        // 超级岛设置
+        setupSuperIsland()
 
         setupThemeSelector()
         applyThemeMode(prefs.getInt(KEY_THEME_MODE, 0))
@@ -170,6 +190,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupSourceSelector() {
+        val savedSource = prefs.getString("time_source", "local") ?: "local"
+        when (savedSource) {
+            "taobao" -> sourceTaobao.isChecked = true
+            "meituan" -> sourceMeituan.isChecked = true
+            else -> sourceLocal.isChecked = true
+        }
+        updateSourceText(savedSource)
+
+        sourceGroup.setOnCheckedChangeListener { _, checkedId ->
+            val source = when (checkedId) {
+                R.id.sourceTaobao -> "taobao"
+                R.id.sourceMeituan -> "meituan"
+                else -> "local"
+            }
+            prefs.edit().putString("time_source", source).apply()
+            updateSourceText(source)
+            if (FloatTimeService.isRunning()) {
+                stopFloatingService()
+                handler.postDelayed({ checkOverlayPermission() }, 500)
+            }
+        }
+    }
+
+    private fun updateSourceText(source: String) {
+        val name = when (source) {
+            "taobao" -> "淘宝服务器"
+            "meituan" -> "美团服务器"
+            else -> "本地时钟"
+        }
+        sourceText.text = "来源: $name"
+    }
+
+    private fun setupSuperIsland() {
+        val enabled = prefs.getBoolean("super_island_enabled", false)
+        superIslandSwitch.isChecked = enabled
+
+        // 检查 Shizuku 是否可用
+        val shizukuAvailable = try {
+            val binderClass = Class.forName("moe.shizuku.api.ShizukuBinderWrapper")
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        if (!shizukuAvailable) {
+            superIslandHint.text = "需要安装 Shizuku"
+            superIslandSwitch.isEnabled = false
+        } else {
+            superIslandHint.text = "需要 Shizuku 权限"
+        }
+
+        superIslandSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean("super_island_enabled", isChecked).apply()
+            if (isChecked && FloatTimeService.isRunning()) {
+                // 重启服务以应用超级岛
+                stopFloatingService()
+                handler.postDelayed({ checkOverlayPermission() }, 500)
+            }
+        }
+    }
+
     private fun setupThemeSelector() {
         when (prefs.getInt(KEY_THEME_MODE, 0)) {
             0 -> themeAuto.isChecked = true
@@ -199,13 +281,16 @@ class MainActivity : AppCompatActivity() {
         val bgColor = if (isNight) 0xFF121212.toInt() else 0xFFFFFFFF.toInt()
         val textColor = if (isNight) 0xFFFFFFFF.toInt() else 0xFF1A1A2E.toInt()
         val accentColor = if (isNight) 0xFF03DAC6.toInt() else 0xFFBB86FC.toInt()
+        val hintColor = if (isNight) 0xFF888888.toInt() else 0xFF666666.toInt()
 
         findViewById<View>(android.R.id.content).setBackgroundColor(bgColor)
 
         statusText.setTextColor(textColor)
         timezoneText.setTextColor(textColor)
         currentTimeText.setTextColor(textColor)
-        versionText.setTextColor(textColor)
+        versionText.setTextColor(hintColor)
+        sourceText.setTextColor(hintColor)
+        superIslandHint.setTextColor(hintColor)
 
         updateButtonStyle(startBtn, isNight, accentColor)
         updateButtonStyle(stopBtn, isNight, accentColor)

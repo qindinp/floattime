@@ -2,7 +2,8 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="24dp">
+    android:padding="24dp"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -10,14 +11,17 @@
         android:orientation="vertical"
         android:gravity="center_horizontal">
 
+        <!-- 版本信息 -->
         <TextView
             android:id="@+id/versionText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="FloatTime"
+            android:text="FloatTime v1.3.0"
             android:textSize="14sp"
-            android:layout_marginBottom="24dp" />
+            android:textColor="#666666"
+            android:layout_marginBottom="16dp" />
 
+        <!-- 当前时间显示 -->
         <TextView
             android:id="@+id/currentTimeText"
             android:layout_width="wrap_content"
@@ -25,25 +29,42 @@
             android:text="--:--:--.---"
             android:textSize="36sp"
             android:textStyle="bold"
+            android:textColor="#1A1A2E"
             android:fontFamily="monospace"
             android:layout_marginBottom="8dp" />
 
+        <!-- 时区显示 -->
         <TextView
             android:id="@+id/timezoneText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="GMT+0"
+            android:text="GMT+8"
             android:textSize="16sp"
-            android:layout_marginBottom="32dp" />
+            android:textColor="#333333"
+            android:layout_marginBottom="16dp" />
 
+        <!-- 时间来源显示 -->
+        <TextView
+            android:id="@+id/sourceText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="来源: 本地时钟"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 状态显示 -->
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="服务未启动"
             android:textSize="18sp"
+            android:textColor="#1A1A2E"
+            android:textStyle="bold"
             android:layout_marginBottom="24dp" />
 
+        <!-- 启动/停止按钮 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -57,6 +78,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="启动"
+                android:textColor="#FFFFFF"
+                android:background="#6200EE"
                 android:layout_marginEnd="8dp" />
 
             <Button
@@ -65,16 +88,130 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="停止"
+                android:textColor="#FFFFFF"
+                android:background="#757575"
                 android:layout_marginStart="8dp"
                 android:enabled="false" />
         </LinearLayout>
 
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E0E0E0"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 时间来源选择 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="时间来源"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A2E"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/sourceGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/sourceLocal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="本地时钟"
+                android:textColor="#333333"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/sourceTaobao"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="淘宝服务器"
+                android:textColor="#333333" />
+
+            <RadioButton
+                android:id="@+id/sourceMeituan"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="美团服务器"
+                android:textColor="#333333" />
+        </RadioGroup>
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E0E0E0"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 超级岛设置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="超级岛 / 灵动岛"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A2E"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="启用超级岛"
+                    android:textSize="16sp"
+                    android:textColor="#333333" />
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/superIslandSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/superIslandHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="需要 Shizuku 权限"
+                android:textSize="12sp"
+                android:textColor="#888888"
+                android:paddingStart="8dp"
+                android:layout_marginBottom="8dp" />
+        </LinearLayout>
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E0E0E0"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 主题设置 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="主题设置"
             android:textSize="16sp"
             android:textStyle="bold"
+            android:textColor="#1A1A2E"
             android:layout_marginBottom="8dp" />
 
         <RadioGroup
@@ -89,6 +226,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="跟随系统"
+                android:textColor="#333333"
                 android:checked="true" />
 
             <RadioButton
@@ -96,6 +234,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="浅色"
+                android:textColor="#333333"
                 android:layout_marginStart="16dp" />
 
             <RadioButton
@@ -103,9 +242,18 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="深色"
+                android:textColor="#333333"
                 android:layout_marginStart="16dp" />
         </RadioGroup>
 
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#E0E0E0"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 悬浮窗设置 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -118,7 +266,8 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="悬浮窗显示"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:textColor="#333333" />
 
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/floatWindowSwitch"
@@ -126,5 +275,6 @@
                 android:layout_height="wrap_content"
                 android:checked="true" />
         </LinearLayout>
+
     </LinearLayout>
 </ScrollView>
