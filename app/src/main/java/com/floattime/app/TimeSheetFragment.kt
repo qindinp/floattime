@@ -28,8 +28,6 @@ class TimeSheetFragment : Fragment() {
     private var updateRunnable: Runnable? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val view = inflater.inflate(android.R.layout.simple_list_item_3, container, false)
-        // Use a custom inline layout instead
         return createView()
     }
 

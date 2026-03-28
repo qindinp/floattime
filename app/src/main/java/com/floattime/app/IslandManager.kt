@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicInteger
@@ -39,13 +38,17 @@ class IslandManager(private val context: Context) {
     }
 
     private val appContext = context.applicationContext
-    private val notifMgr = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val notifMgr: NotificationManager by lazy {
+        appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
     private val handler = Handler(Looper.getMainLooper())
 
     // 三个子管理器
-    private val liveIsland: LiveIslandHandler? = LiveIslandHandler.tryCreate(appContext, notifMgr)
+    private val liveIsland: LiveIslandHandler? = LiveIslandHandler.Factory.create(appContext, notifMgr)
     private val hyperIsland: HyperIslandHandler = HyperIslandHandler(appContext, notifMgr)
-    private val notificationHandler: NotificationHandler = NotificationHandler(appContext, notifMgr)
+    private val notificationHandler: NotificationHandler by lazy {
+        NotificationHandler(appContext, notifMgr)
+    }
 
     init {
         if (!initialized) {
@@ -54,7 +57,7 @@ class IslandManager(private val context: Context) {
         }
         Log.d(TAG, "IslandManager init | API=${Build.VERSION.SDK_INT}" +
                 " | LiveIsland=${liveIsland != null}" +
-                " | HyperOS=${hyperIsland.isSupported()}")
+                " | HyperOS=${hyperIsland.isSupported}")
     }
 
     fun describe(): String {
@@ -120,11 +123,12 @@ class IslandManager(private val context: Context) {
     }
 
     // ==============================================================
-    //  LiveIslandHandler - AndroidX Window Extensions API
+    //  LiveIslandHandler - Android 16+ AndroidX Window Extensions API
     //  Android 15+ (API 35) / Android 16+ (API 36)
+    //  Uses a package-level LhState object for reflection caching.
     // ==============================================================
 
-    inner class LiveIslandHandler private constructor(
+    private class LiveIslandHandler private constructor(
         private val ctx: Context,
         private val nm: NotificationManager
     ) {
@@ -135,73 +139,15 @@ class IslandManager(private val context: Context) {
         private var currentSource = ""
         private val pendingUpdate = AtomicInteger(0)
 
-        companion object {
-            private const val TAG = "LiveIslandHandler"
-            private var windowAreaComponent: Class<*>? = null
-            private var windowAreaPresentation: Class<*>? = null
-            private var windowAreaStatus: Class<*>? = null
-            private var windowAreaManager: Any? = null
-            private var registerMethod: Method? = null
-            private var unregisterMethod: Method? = null
-            private var extensionVersion: Int = 0
-            @Volatile private var checked = false
-            @Volatile private var supported = false
-
-            fun tryCreate(c: Context, n: NotificationManager): LiveIslandHandler? {
-                if (checked) return if (supported) LiveIslandHandler(c, n) else null
-                checked = true
-                try {
-                    val sdkInt = Build.VERSION.SDK_INT
-                    if (sdkInt >= 35) {
-                        windowAreaPresentation = Class.forName("androidx.window.area.WindowAreaPresentation")
-                        windowAreaStatus = Class.forName("androidx.window.area.WindowAreaStatus")
-                        windowAreaComponent = Class.forName("androidx.window.area.WindowAreaComponent")
-
-                        val atmClass = Class.forName("android.app.ActivityTaskManager")
-                        val atm = atmClass.getMethod("getInstance").invoke(null)
-                        val wacField = atmClass.getDeclaredField("mWindowAreaComponent")
-                        wacField.isAccessible = true
-                        val wac = wacField.get(atm) ?: return null
-
-                        if (sdkInt >= 36) {
-                            val getExtVer = wac::class.java.getMethod("getExtensionVersion")
-                            extensionVersion = (getExtVer.invoke(wac) as? Int) ?: 0
-                        }
-
-                        val wamField = wac::class.java.getDeclaredField("mWindowAreaManager")
-                        wamField.isAccessible = true
-                        windowAreaManager = wamField.get(wac)
-
-                        registerMethod = (windowAreaManager as Any)::class.java.getMethod(
-                            "registerWindowAreaPresentation",
-                            windowAreaPresentation as Class<Any>,
-                            android.os.Handler::class.java
-                        )
-                        unregisterMethod = (windowAreaManager as Any)::class.java.getMethod(
-                            "unregisterWindowAreaPresentation",
-                            windowAreaPresentation as Class<Any>
-                        )
-                        supported = true
-                        Log.d(TAG, "Live Island supported (API $sdkInt, extVer=$extensionVersion)")
-                        return LiveIslandHandler(c, n)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Live Island check failed: ${e::class.simpleName}: ${e.message}")
-                }
-                Log.d(TAG, "Live Island not supported (API ${Build.VERSION.SDK_INT})")
-                return null
-            }
-        }
-
         fun isActive() = isActive
 
         fun show(timeStr: String, millisStr: String, source: String, night: Boolean) {
-            currentTimeStr = timeStr; currentMillisStr = millisStr; currentSource = source; isNight = night
+            currentTimeStr = timeStr; currentMillisStr = millisStr
+            currentSource = source; isNight = night
             if (!isActive) {
-                try {
-                    register(); isActive = true
-                } catch (e: Exception) {
-                    Log.e(TAG, "show failed: ${e.message}"); isActive = false
+                try { register(); isActive = true }
+                catch (e: Exception) {
+                    Log.e(LhState.TAG, "show failed: ${e.message}"); isActive = false
                 }
             }
         }
@@ -210,7 +156,7 @@ class IslandManager(private val context: Context) {
             currentTimeStr = timeStr; currentMillisStr = millisStr; isNight = night
             if (isActive) {
                 val seq = pendingUpdate.incrementAndGet()
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                Handler(Looper.getMainLooper()).postDelayed({
                     if (seq == pendingUpdate.get()) refreshContent()
                 }, 500)
             }
@@ -229,29 +175,29 @@ class IslandManager(private val context: Context) {
         }
 
         fun showSyncPending(source: String) {
-            Log.d(TAG, "Sync pending: $source")
+            Log.d(LhState.TAG, "Sync pending: $source")
         }
 
         fun showSyncResult(success: Boolean, source: String, offsetMs: Long) {
-            Log.d(TAG, "Sync result: success=$success source=$source offset=${offsetMs}ms")
+            Log.d(LhState.TAG, "Sync result: success=$success source=$source offset=${offsetMs}ms")
         }
 
         fun destroy() = hide()
 
         private fun register() {
-            if (windowAreaManager == null) return
+            val wam = LhState.getWindowAreaManager() ?: return
             val presentation = createPresentation()
-            val looper = android.os.Handler(android.os.Looper.getMainLooper())
-            registerMethod?.invoke(windowAreaManager, presentation, looper)
-            Log.d(TAG, "Live Island registered")
+            val looper = Handler(Looper.getMainLooper())
+            LhState.getRegisterMethod()?.invoke(wam, presentation, looper)
+            Log.d(LhState.TAG, "Live Island registered")
         }
 
         private fun unregister() {
-            if (windowAreaManager == null) return
+            val wam = LhState.getWindowAreaManager() ?: return
             try {
                 val presentation = createPresentation()
-                unregisterMethod?.invoke(windowAreaManager, presentation)
-                Log.d(TAG, "Live Island unregistered")
+                LhState.getUnregisterMethod()?.invoke(wam, presentation)
+                Log.d(LhState.TAG, "Live Island unregistered")
             } catch (_: Exception) {}
         }
 
@@ -261,20 +207,23 @@ class IslandManager(private val context: Context) {
         }
 
         private fun createPresentation(): Any {
-            val iface = windowAreaPresentation ?: throw IllegalStateException("WindowAreaPresentation class not loaded")
+            val iface = LhState.getWindowAreaPresentation()
+                ?: throw IllegalStateException("WindowAreaPresentation class not loaded")
             return java.lang.reflect.Proxy.newProxyInstance(
                 iface.classLoader, arrayOf(iface)
             ) { _, method, _ ->
                 when (method.name) {
                     "getContent" -> createContentView()
-                    "onOpening" -> Log.d(TAG, "Live Island opening")
-                    "onClosed" -> { Log.d(TAG, "Live Island closed"); isActive = false }
+                    "onOpening" -> Log.d(LhState.TAG, "Live Island opening")
+                    "onClosed" -> { Log.d(LhState.TAG, "Live Island closed"); isActive = false }
                     "onClick" -> {
-                        Log.d(TAG, "Live Island clicked")
-                        val intent = Intent(ctx, MainActivity::class.java).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                        Log.d(LhState.TAG, "Live Island clicked")
+                        val intent = Intent(ctx, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
                         ctx.startActivity(intent)
                     }
-                    "onClose" -> Log.d(TAG, "Live Island close requested")
+                    "onClose" -> Log.d(LhState.TAG, "Live Island close requested")
                 }
                 null
             }
@@ -291,41 +240,28 @@ class IslandManager(private val context: Context) {
                 putInt("style", if (isNight) 1 else 0)
             }
         }
+
+        companion object Factory {
+            fun create(c: Context, n: NotificationManager): LiveIslandHandler? =
+                LhState.tryCreate(c, n)
+        }
     }
 
     // ==============================================================
     //  HyperIslandHandler - MIUI HyperOS 焦点通知
     // ==============================================================
 
-    inner class HyperIslandHandler(
+    private class HyperIslandHandler(
         private val ctx: Context,
         private val nm: NotificationManager
     ) {
-        companion object {
-            private const val TAG = "HyperIslandHandler"
-            private const val FOCUS_TITLE = "miui.focus.title"
-            private const val FOCUS_CONTENT = "miui.focus.content"
-            private const val FOCUS_ICON = "miui.focus.icon"
-            @Volatile private var cachedHyperOS: Boolean? = null
+        private val TAG = "HyperIslandHandler"
+        private val FOCUS_TITLE = "miui.focus.title"
+        private val FOCUS_CONTENT = "miui.focus.content"
+        private val FOCUS_ICON = "miui.focus.icon"
+        @Volatile private var cachedHyperOS: Boolean? = null
+        private var _isShowing = false
 
-            fun isHyperOSDevice(): Boolean {
-                cachedHyperOS?.let { return it }
-                val result: Boolean
-                try {
-                    val clazz = Class.forName("android.os.SystemProperties")
-                    val prop = clazz.getMethod("get", String::class.java)
-                        .invoke(null, "ro.mi.os.version.incremental") as? String
-                    result = !prop.isNullOrEmpty()
-                } catch (_: Exception) {
-                    val m = Build.MANUFACTURER.lowercase()
-                    result = m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
-                }
-                cachedHyperOS = result
-                return result
-            }
-        }
-
-        private var isShowing = false
         private val pi = PendingIntent.getActivity(
             ctx, 0,
             Intent(ctx, MainActivity::class.java).apply {
@@ -334,11 +270,13 @@ class IslandManager(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        fun isSupported() = isHyperOSDevice() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        fun isActive() = isShowing
+        val isSupported: Boolean
+            get() = isHyperOSDevice() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+        fun isActive() = _isShowing
 
         fun show(timeStr: String, millisStr: String, source: String) {
-            if (!isSupported()) return
+            if (!isSupported) return
             try {
                 val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
@@ -365,10 +303,10 @@ class IslandManager(private val context: Context) {
                 extras.putString("miui.focus.indicator", "dot")
                 extras.putBoolean("miui.focus.expanded", true)
                 extras.putString("miui.focus.expanded.title", "悬浮时间")
-                extras.putString("miui.focus.expanded.content", "$timeStr${millisStr}\n$source\n点击打开设置")
+                extras.putString("miui.focus.expanded.content", "$timeStr$millisStr\n$source\n点击打开设置")
 
                 nm.notify(NOTIFICATION_ID, n)
-                isShowing = true
+                _isShowing = true
                 Log.d(TAG, "HyperIsland shown: $timeStr $source")
             } catch (e: Exception) {
                 Log.e(TAG, "show failed: ${e.message}")
@@ -376,17 +314,33 @@ class IslandManager(private val context: Context) {
         }
 
         fun hide() {
-            if (isShowing) { nm.cancel(NOTIFICATION_ID); isShowing = false }
+            if (_isShowing) { nm.cancel(NOTIFICATION_ID); _isShowing = false }
         }
 
         fun destroy() = hide()
+
+        private fun isHyperOSDevice(): Boolean {
+            cachedHyperOS?.let { return it }
+            val result: Boolean
+            try {
+                val clazz = Class.forName("android.os.SystemProperties")
+                val prop = clazz.getMethod("get", String::class.java)
+                    .invoke(null, "ro.mi.os.version.incremental") as? String
+                result = !prop.isNullOrEmpty()
+            } catch (_: Exception) {
+                val m = Build.MANUFACTURER.lowercase()
+                result = m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
+            }
+            cachedHyperOS = result
+            return result
+        }
     }
 
     // ==============================================================
     //  NotificationHandler - 标准通知栏（所有设备兜底）
     // ==============================================================
 
-    inner class NotificationHandler(
+    private inner class NotificationHandler(
         private val ctx: Context,
         private val nm: NotificationManager
     ) {
@@ -426,12 +380,6 @@ class IslandManager(private val context: Context) {
                 val second = try { timeStr.split(":").getOrNull(2)?.toInt() ?: 0 } catch (_: Exception) { 0 }
                 val color = if (isNight) 0xFF4FC3F7.toInt() else 0xFF1976D2.toInt()
                 builder.setProgress(60, second, false)
-                val extras = Bundle().apply {
-                    putInt("android.progressLength", 1)
-                    putInt("android.progressColor", color)
-                    putInt("android.progressMax", 60)
-                    putInt("android.progress", second)
-                }
                 Log.d("NotificationHandler", "ProgressStyle: second=$second")
             }
 
@@ -469,5 +417,70 @@ class IslandManager(private val context: Context) {
         private fun srcName(s: String) = when (s) {
             "taobao" -> "淘宝"; "meituan" -> "美团"; else -> s
         }
+    }
+}
+
+// ==============================================================
+//  LhState - Package-level reflection state for LiveIslandHandler
+//  Avoids companion-object-inside-inner-class restriction
+// ==============================================================
+
+private object LhState {
+    const val TAG = "LiveIslandHandler"
+
+    private var windowAreaPresentation: Class<*>? = null
+    private var windowAreaManager: Any? = null
+    private var registerMethod: Method? = null
+    private var unregisterMethod: Method? = null
+    private var extensionVersion: Int = 0
+    @Volatile private var checked = false
+    @Volatile private var supported = false
+
+    fun getWindowAreaManager() = windowAreaManager
+    fun getWindowAreaPresentation() = windowAreaPresentation
+    fun getRegisterMethod() = registerMethod
+    fun getUnregisterMethod() = unregisterMethod
+
+    fun tryCreate(c: Context, n: NotificationManager): IslandManager.LiveIslandHandler? {
+        if (checked) return if (supported) IslandManager.LiveIslandHandler(c, n) else null
+        checked = true
+        try {
+            val sdkInt = Build.VERSION.SDK_INT
+            if (sdkInt >= 35) {
+                windowAreaPresentation = Class.forName("androidx.window.area.WindowAreaPresentation")
+
+                val atmClass = Class.forName("android.app.ActivityTaskManager")
+                val atm = atmClass.getMethod("getInstance").invoke(null)
+                val wacField = atmClass.getDeclaredField("mWindowAreaComponent")
+                wacField.isAccessible = true
+                val wac = wacField.get(atm) ?: return null
+
+                if (sdkInt >= 36) {
+                    val getExtVer = wac.javaClass.getMethod("getExtensionVersion")
+                    extensionVersion = (getExtVer.invoke(wac) as? Int) ?: 0
+                }
+
+                val wamField = wac.javaClass.getDeclaredField("mWindowAreaManager")
+                wamField.isAccessible = true
+                windowAreaManager = wamField.get(wac)
+
+                registerMethod = (windowAreaManager as Any).javaClass.getMethod(
+                    "registerWindowAreaPresentation",
+                    windowAreaPresentation!!,
+                    android.os.Handler::class.java
+                )
+                unregisterMethod = (windowAreaManager as Any).javaClass.getMethod(
+                    "unregisterWindowAreaPresentation",
+                    windowAreaPresentation!!
+                )
+                supported = true
+                Log.d(TAG, "Live Island supported (API $sdkInt, extVer=$extensionVersion)")
+                return IslandManager.LiveIslandHandler(c, n)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Live Island check failed: ${e::class.simpleName}: ${e.message}")
+        }
+        Log.d(TAG, "Live Island not supported (API ${Build.VERSION.SDK_INT})")
+        return null
     }
 }

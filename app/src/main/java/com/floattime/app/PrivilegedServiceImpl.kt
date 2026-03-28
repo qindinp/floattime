@@ -134,7 +134,8 @@ class PrivilegedServiceImpl : IPrivilegedService.Stub() {
             val policy = if (enabled) POLICY_NONE else POLICY_REJECT_ALL
 
             // 尝试 setUidPolicy(int uid, int policy)
-            val setUidPolicy = findMethodExact(npm, "setUidPolicy", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            @Suppress("UNCHECKED_CAST")
+            val setUidPolicy = findMethodExact(npm, "setUidPolicy", Int::class.javaPrimitiveType as Class<Any>, Int::class.javaPrimitiveType as Class<Any>)
             if (setUidPolicy != null) {
                 setUidPolicy.invoke(npm, uid, policy)
                 Log.d(TAG, "setUidPolicy(uid=$uid, policy=$policy) OK")
@@ -142,7 +143,8 @@ class PrivilegedServiceImpl : IPrivilegedService.Stub() {
             }
 
             // 回退：某些版本用 setUidPolicyForegroundRules
-            val setFg = findMethodExact(npm, "setUidPolicyForegroundRules", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            @Suppress("UNCHECKED_CAST")
+            val setFg = findMethodExact(npm, "setUidPolicyForegroundRules", Int::class.javaPrimitiveType as Class<Any>, Int::class.javaPrimitiveType as Class<Any>)
             if (setFg != null) {
                 setFg.invoke(npm, uid, policy)
                 Log.d(TAG, "setUidPolicyForegroundRules(uid=$uid, policy=$policy) OK")
@@ -177,12 +179,14 @@ class PrivilegedServiceImpl : IPrivilegedService.Stub() {
 
             for (chain in intArrayOf(CHAIN_WIFI, CHAIN_MOBILE)) {
                 try {
-                    val setEnabled = findMethodExact(cm, "setFirewallChainEnabled", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+                    @Suppress("UNCHECKED_CAST")
+                    val setEnabled = findMethodExact(cm, "setFirewallChainEnabled", Int::class.javaPrimitiveType as Class<Any>, Boolean::class.javaPrimitiveType as Class<Any>)
                     if (setEnabled != null) {
                         setEnabled.invoke(cm, chain, true)
                     }
 
-                    val setRule = findMethodExact(cm, "setUidFirewallRule", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                    @Suppress("UNCHECKED_CAST")
+                    val setRule = findMethodExact(cm, "setUidFirewallRule", Int::class.javaPrimitiveType as Class<Any>, Int::class.javaPrimitiveType as Class<Any>, Int::class.javaPrimitiveType as Class<Any>)
                     if (setRule != null) {
                         setRule.invoke(cm, chain, uid, rule)
                         Log.d(TAG, "setUidFirewallRule(chain=$chain, uid=$uid, rule=$rule) OK")

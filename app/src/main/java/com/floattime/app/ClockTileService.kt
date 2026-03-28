@@ -42,7 +42,7 @@ class ClockTileService : TileService() {
         // 同步磁贴状态
         val isRunning = FloatTimeService.isRunning()
         prefs.edit().putBoolean(KEY_SERVICE_ACTIVE, isRunning).apply()
-        updateTile(if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE)
+        qsTile?.apply { state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE; updateTile() }
 
         Log.d(TAG, "onStartListening | isRunning=$isRunning")
     }
@@ -78,17 +78,17 @@ class ClockTileService : TileService() {
             } else {
                 startService(intent)
             }
-            qsTile?.updateTile(Tile.STATE_ACTIVE)
+            qsTile?.apply { state = Tile.STATE_ACTIVE; updateTile() }
         } catch (e: Exception) {
             Log.e(TAG, "startService failed: ${e.message}")
-            qsTile?.updateTile(Tile.STATE_UNAVAILABLE)
+            qsTile?.apply { state = Tile.STATE_UNAVAILABLE; updateTile() }
         }
     }
 
     private fun stopService() {
         try {
             stopService(Intent(this, FloatTimeService::class.java))
-            qsTile?.updateTile(Tile.STATE_INACTIVE)
+            qsTile?.apply { state = Tile.STATE_INACTIVE; updateTile() }
         } catch (e: Exception) {
             Log.e(TAG, "stopService failed: ${e.message}")
         }

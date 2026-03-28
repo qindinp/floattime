@@ -280,18 +280,4 @@ class ShizukuIslandHelper(private val context: Context) {
         }
     }
 
-    companion object {
-        fun getHyperOSVersion(): String {
-            return try {
-                val clazz = Class.forName("android.os.SystemProperties")
-                var prop = clazz.getMethod("get", String::class.java)
-                    .invoke(null, "ro.mi.os.version.name") as? String
-                if (!prop.isNullOrEmpty()) return prop!!
-                prop = clazz.getMethod("get", String::class.java)
-                    .invoke(null, "ro.mi.os.version.incremental") as? String
-                if (!prop.isNullOrEmpty()) return prop!!
-            } catch (_: Exception) {}
-            return "Unknown"
-        }
-    }
 }
