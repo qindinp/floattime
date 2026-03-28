@@ -2,7 +2,6 @@ package com.floattime.app
 
 import android.app.Service
 import android.app.Notification
-import android.app.Service
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -21,6 +20,8 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
+import java.util.TimeZone
+import androidx.core.app.NotificationCompat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
