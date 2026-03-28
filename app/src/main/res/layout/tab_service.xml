@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- 当前校准时间 -->
+    <TextView
+        android:id="@+id/currentCalibratedTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="24sp"
+        android:textColor="#FFFF6B35"
+        android:textStyle="bold"
+        android:text="03:23:48.089" />
+
+    <!-- 副标题 -->
+    <TextView
+        android:id="@+id/calibrationSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textSize="12sp"
+        android:textColor="#FF999999"
+        android:text="校准时间 (美团) | 偏移量: 1ms" />
+
+    <!-- 分割线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="16dp"
+        android:background="#FFF0F0F0" />
+
+    <!-- 显示浮动窗口 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="显示浮动窗口"
+            android:textSize="15sp"
+            android:textColor="#FF333333" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchFloatingWindow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true" />
+    </LinearLayout>
+
+    <!-- 保存提醒静音 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="保存提醒静音"
+            android:textSize="15sp"
+            android:textColor="#FF333333" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchMuteReminder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true" />
+    </LinearLayout>
+
+    <!-- 分割线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="#FFF0F0F0" />
+
+    <!-- 退出登录 -->
+    <TextView
+        android:id="@+id/btnLogout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="退出登录"
+        android:textSize="14sp"
+        android:textColor="#FFFF6B35"
+        android:textStyle="bold"
+        android:textAlignment="center"
+        android:padding="12dp"
+        android:background="@drawable/btn_logout_bg"
+        android:layout_marginTop="8dp" />
+
+    <!-- 开 启动按钮 -->
+    <TextView
+        android:id="@+id/btnStart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="开"
+        android:textSize="18sp"
+        android:textColor="#FFFFFFFF"
+        android:textStyle="bold"
+        android:textAlignment="center"
+        android:padding="16dp"
+        android:background="@drawable/btn_start_bg"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>

@@ -1,42 +1,24 @@
 package com.floattime.app
 
 import android.Manifest
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
 import android.util.Log
-import android.view.View
-import android.widget.Button
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 
 /**
- * 主界面 - 负责权限申请、服务启动、主题设置 (修复版)
- *
- * 修复内容:
- * - ✅ 完善权限检查 (FOREGROUND_SERVICE, POST_NOTIFICATIONS, SYSTEM_ALERT_WINDOW)
- * - ✅ 改进权限请求流程
- * - ✅ 增强错误处理
+ * FloatTime 主界面
+ * 底部抽屉双 Tab: 状态 | 服务
  */
 class MainActivity : AppCompatActivity() {
 
@@ -45,38 +27,19 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "FloatTimePrefs"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_PERMISSIONS_REQUESTED = "permissions_requested"
-
-        // ✅ 修复: 权限请求码
-        private const val REQUEST_CODE_OVERLAY = 1001
-        private const val REQUEST_CODE_NOTIFICATION = 1002
-        private const val REQUEST_CODE_FOREGROUND_SERVICE = 1003
     }
 
-    private lateinit var startBtn: Button
-    private lateinit var stopBtn: Button
-    private lateinit var statusText: TextView
-    private lateinit var timezoneText: TextView
-    private lateinit var currentTimeText: TextView
-    private lateinit var versionText: TextView
-    private lateinit var themeGroup: RadioGroup
-    private lateinit var themeAuto: RadioButton
-    private lateinit var themeLight: RadioButton
-    private lateinit var themeDark: RadioButton
-    private lateinit var floatWindowSwitch: Switch
-
     private lateinit var prefs: SharedPreferences
-    private lateinit var islandManager: IslandManager
-    private lateinit var handler: Handler
-    private var timeRunnable: Runnable? = null
+    private lateinit var tabStatus: TextView
+    private lateinit var tabService: TextView
+    private lateinit var bottomSheetBehavior: BottomSheetBehavior<*>
 
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (Settings.canDrawOverlays(this)) {
-                checkNotificationPermissionAndStart()
-            } else {
-                showStatus("❌ 需要悬浮窗权限")
+                Log.d(TAG, "Overlay permission granted")
             }
         }
     }
@@ -84,366 +47,100 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 启用暗夜模式支持 - 跟随系统设置
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        islandManager = IslandManager(this)
 
         setContentView(R.layout.activity_main)
 
-        // 初始化 View
-        startBtn = findViewById(R.id.startBtn)
-        stopBtn = findViewById(R.id.stopBtn)
-        statusText = findViewById(R.id.statusText)
-        timezoneText = findViewById(R.id.timezoneText)
-        currentTimeText = findViewById(R.id.currentTimeText)
-        versionText = findViewById(R.id.versionText)
-        themeGroup = findViewById(R.id.themeGroup)
-        themeAuto = findViewById(R.id.themeAuto)
-        themeLight = findViewById(R.id.themeLight)
-        themeDark = findViewById(R.id.themeDark)
-        floatWindowSwitch = findViewById(R.id.floatWindowSwitch)
+        setupBottomSheet()
+        requestInitialPermissions()
 
-        startBtn.setOnClickListener { checkOverlayPermission() }
-        stopBtn.setOnClickListener { stopFloatingService() }
-
-        // 悬浮窗开关
-        floatWindowSwitch.isChecked = prefs.getBoolean("float_window_enabled", true)
-        floatWindowSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean("float_window_enabled", isChecked).apply()
-            if (FloatTimeService.isRunning()) {
-                stopFloatingService()
-                handler.postDelayed({ checkOverlayPermission() }, 500)
-            }
+        // Default to time (status) tab
+        if (savedInstanceState == null) {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.fragmentContainer, TimeFragment())
+                .commit()
+            showTab(0)
         }
-
-        versionText.text = "FloatTime v1.4.0 | API ${Build.VERSION.SDK_INT}"
-
-        setupThemeSelector()
-        applyThemeMode(prefs.getInt(KEY_THEME_MODE, 0))
-
-        displayTimezone()
-        startMainClock()
-        updateStatus()
-
-        // 首次启动请求权限
-        if (!prefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) {
-            requestInitialPermissions()
-            prefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply()
-        }
-
-        Log.d(TAG, "MainActivity onCreate - Dark mode enabled, permissions checked")
     }
 
-    /**
-     * 请求初始权限 (修复版)
-     */
+    private fun setupBottomSheet() {
+        val bottomSheet = findViewById<android.view.View>(R.id.bottomSheet)
+        bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+
+        tabStatus = findViewById(R.id.tabStatus)
+        tabService = findViewById(R.id.tabService)
+
+        tabStatus.setOnClickListener { showTab(0) }
+        tabService.setOnClickListener { showTab(1) }
+    }
+
+    private fun showTab(index: Int) {
+        val tabContent = findViewById<android.widget.FrameLayout>(R.id.tabContent)
+
+        when (index) {
+            0 -> {
+                // 状态 tab
+                tabStatus.setTextColor(0xFFFF6B35.toInt())
+                tabStatus.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                tabService.setTextColor(0xFF999999.toInt())
+                tabService.typeface = android.graphics.Typeface.DEFAULT
+
+                // Show time info in bottom sheet
+                val fragment = TimeSheetFragment()
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.tabContent, fragment)
+                    .commit()
+            }
+            1 -> {
+                // 服务 tab
+                tabService.setTextColor(0xFFFF6B35.toInt())
+                tabService.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                tabStatus.setTextColor(0xFF999999.toInt())
+                tabStatus.typeface = android.graphics.Typeface.DEFAULT
+
+                val fragment = ServiceFragment()
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.tabContent, fragment)
+                    .commit()
+            }
+        }
+    }
+
     private fun requestInitialPermissions() {
-        Log.d(TAG, "Requesting initial permissions")
+        if (prefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) return
 
-        // ✅ 修复: Android 12+ 请求前台服务权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
+                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), 1003
                 )
             }
         }
 
-        // ✅ 修复: Android 13+ 请求通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
+                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1002
                 )
             }
         }
 
-        // 悬浮窗权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            showOverlayPermissionDialog()
-        }
-    }
-
-    private fun setupThemeSelector() {
-        when (prefs.getInt(KEY_THEME_MODE, 0)) {
-            0 -> themeAuto.isChecked = true
-            1 -> themeLight.isChecked = true
-            2 -> themeDark.isChecked = true
-        }
-
-        themeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val mode = when (checkedId) {
-                R.id.themeLight -> 1
-                R.id.themeDark -> 2
-                else -> 0
-            }
-            prefs.edit().putInt(KEY_THEME_MODE, mode).apply()
-            applyThemeMode(mode)
-
-            if (FloatTimeService.isRunning()) {
-                updateServiceTheme(mode)
-            }
-            Log.d(TAG, "Theme changed to: $mode")
-        }
-    }
-
-    private fun applyThemeMode(mode: Int) {
-        val isNight = FloatTimeService.calcNightMode(mode)
-
-        val bgColor = if (isNight) 0xFF121212.toInt() else 0xFFFFFFFF.toInt()
-        val textColor = if (isNight) 0xFFFFFFFF.toInt() else 0xFF1A1A2E.toInt()
-        val accentColor = if (isNight) 0xFF03DAC6.toInt() else 0xFFBB86FC.toInt()
-
-        findViewById<View>(android.R.id.content).setBackgroundColor(bgColor)
-
-        statusText.setTextColor(textColor)
-        timezoneText.setTextColor(textColor)
-        currentTimeText.setTextColor(textColor)
-        versionText.setTextColor(textColor)
-
-        updateButtonStyle(startBtn, isNight, accentColor)
-        updateButtonStyle(stopBtn, isNight, accentColor)
-
-        floatWindowSwitch.setTextColor(textColor)
-    }
-
-    private fun updateButtonStyle(btn: Button?, isNight: Boolean, accentColor: Int) {
-        btn ?: return
-
-        val bgColor = if (isNight) 0xFF2A2A2A.toInt() else 0xFFE0E0E0.toInt()
-        val textColor = if (isNight) accentColor else 0xFF1A1A2E.toInt()
-
-        btn.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(12f).toFloat()
-            setColor(bgColor)
-            setStroke(dpToPx(2f), textColor)
-        }
-        btn.setTextColor(textColor)
-    }
-
-    private fun dpToPx(dp: Float): Int =
-        Math.round(dp * resources.displayMetrics.density)
-
-    private fun updateServiceTheme(mode: Int) {
-        val intent = Intent(this, FloatTimeService::class.java).apply {
-            action = "CHANGE_THEME"
-            putExtra("mode", mode)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateStatus()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        timeRunnable?.let { handler.removeCallbacks(it) }
-        if (::islandManager.isInitialized) {
-            islandManager.destroy()
-        }
-    }
-
-    // ==================== Live Update 公共方法 ====================
-
-    fun isSupported(): Boolean = ::islandManager.isInitialized
-    fun showTimeSyncing(source: String) = islandManager.showSyncStatus(true, source)
-    fun showTimeSyncSuccess(source: String, offsetMs: Long) = islandManager.showSyncResult(true, source, offsetMs)
-    fun showTimeSyncFailed(source: String) = islandManager.showSyncResult(false, source, 0)
-
-    private fun displayTimezone() {
-        val tz = TimeZone.getDefault()
-        val offset = tz.rawOffset / (1000 * 60 * 60)
-        val offsetStr = if (offset >= 0) "GMT+$offset" else "GMT$offset"
-        timezoneText.text = "${tz.id} ($offsetStr)"
-    }
-
-    private fun startMainClock() {
-        handler = Handler(Looper.getMainLooper())
-        timeRunnable = object : Runnable {
-            override fun run() {
-                updateMainTime()
-                handler.postDelayed(this, 500)
-            }
-        }.also { handler.post(it) }
-    }
-
-    private fun updateMainTime() {
-        try {
-            val now = System.currentTimeMillis()
-            val timeFmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-            currentTimeText.text = timeFmt.format(Date(now))
-        } catch (_: Exception) {}
-    }
-
-    private fun updateStatus() {
-        val running = FloatTimeService.isRunning()
-        runOnUiThread {
-            if (running) {
-                statusText.text = "✅ 悬浮时间服务运行中"
-                startBtn.isEnabled = false
-                stopBtn.isEnabled = true
-            } else {
-                statusText.text = "⭕ 服务未启动"
-                startBtn.isEnabled = true
-                stopBtn.isEnabled = false
-            }
-        }
-    }
-
-    private fun showStatus(text: String) {
-        runOnUiThread { statusText.text = text }
-    }
-
-    /**
-     * 检查悬浮窗权限 (修复版)
-     */
-    private fun checkOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // ✅ 修复: 检查悬浮窗权限
-            if (!Settings.canDrawOverlays(this)) {
-                showOverlayPermissionDialog()
-                return
-            }
-        }
-
-        // ✅ 修复: 检查前台服务权限（Android 12+）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")
                 )
-                return
-            }
+                overlayPermissionLauncher.launch(intent)
+            } catch (_: Exception) {}
         }
 
-        // ✅ 修复: 检查通知权限（Android 13+）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
-                )
-                return
-            }
-        }
-
-        startFloatingService()
-    }
-
-    private fun showOverlayPermissionDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("悬浮窗选项")
-            .setMessage("选择是否启用悬浮窗显示")
-            .setPositiveButton("启用悬浮窗") { _, _ ->
-                try {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                    prefs.edit().putBoolean("float_window_enabled", true).apply()
-                    overlayPermissionLauncher.launch(intent)
-                } catch (_: Exception) {
-                    openAppSettings()
-                }
-            }
-            .setNegativeButton("仅后台运行") { _, _ ->
-                prefs.edit().putBoolean("float_window_enabled", false).apply()
-                checkNotificationPermissionAndStart()
-            }
-            .setNeutralButton("取消", null)
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun checkNotificationPermissionAndStart() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
-                )
-            } else {
-                startFloatingService()
-            }
-        } else {
-            startFloatingService()
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            REQUEST_CODE_NOTIFICATION, REQUEST_CODE_FOREGROUND_SERVICE -> {
-                // ✅ 修复: 权限请求后继续启动
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    startFloatingService()
-                } else {
-                    showStatus("❌ 缺少必要权限")
-                }
-            }
-        }
-    }
-
-    private fun startFloatingService() {
-        try {
-            prefs.edit().putBoolean("service_was_started", true).apply()
-            val intent = Intent(this, FloatTimeService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-
-            showStatus("✅ 悬浮时间服务已启动")
-            startBtn.isEnabled = false
-            stopBtn.isEnabled = true
-            Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show()
-            Log.d(TAG, "Service started")
-        } catch (e: Exception) {
-            showStatus("❌ 启动失败: ${e.message}")
-            Toast.makeText(this, "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
-            Log.e(TAG, "Start failed: ${e.message}")
-        }
-    }
-
-    private fun stopFloatingService() {
-        try {
-            stopService(Intent(this, FloatTimeService::class.java))
-
-            showStatus("⭕ 服务已停止")
-            startBtn.isEnabled = true
-            stopBtn.isEnabled = false
-            Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show()
-            Log.d(TAG, "Service stopped")
-        } catch (e: Exception) {
-            showStatus("❌ 停止失败: ${e.message}")
-            Log.e(TAG, "Stop failed: ${e.message}")
-        }
-    }
-
-    private fun openAppSettings() {
-        try {
-            startActivity(Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:$packageName")
-            ))
-        } catch (_: Exception) {}
+        prefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply()
     }
 }
