@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  FloatTime App Icon - Modern Clock Design
-  Clock face with floating overlay aesthetic
-  Time: 10:10 (most aesthetically pleasing position)
+  FloatTime Icon - White/Clean Design
+  Minimalist clock on white background
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,55 +9,72 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer ring with gradient effect (simulated with layered paths) -->
-    <path
-        android:fillColor="#7C3AED"
-        android:pathData="M54,18A36,36 0,1 1,54 90A36,36 0,1 1,54 18Z" />
-
-    <!-- Clock face background -->
+    <!-- White background fill -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,21A33,33 0,1 1,54 87A33,33 0,1 1,54 21Z" />
+        android:pathData="M0,0h108v108h-108z" />
 
-    <!-- Hour markers: 12, 3, 6, 9 positions (larger) -->
-    <!-- 12 o'clock -->
+    <!-- Outer circle ring - thin, dark -->
     <path
-        android:fillColor="#1F2937"
-        android:pathData="M52.5,26L55.5,26L55.5,31L52.5,31Z" />
-    <!-- 3 o'clock -->
-    <path
-        android:fillColor="#1F2937"
-        android:pathData="M77,52.5L82,52.5L82,55.5L77,55.5Z" />
-    <!-- 6 o'clock -->
-    <path
-        android:fillColor="#1F2937"
-        android:pathData="M52.5,77L55.5,77L55.5,82L52.5,82Z" />
-    <!-- 9 o'clock -->
-    <path
-        android:fillColor="#1F2937"
-        android:pathData="M26,52.5L31,52.5L31,55.5L26,55.5Z" />
+        android:fillColor="#1A1A2E"
+        android:pathData="M54,16A38,38 0,1 1,54 92A38,38 0,1 1,54 16Z" />
 
-    <!-- Hour hand (pointing to ~10 o'clock) - thicker, darker -->
+    <!-- Inner white face -->
     <path
-        android:fillColor="#1F2937"
-        android:pathData="M52.5,54L54,34L56.5,54Z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20A34,34 0,1 1,54 88A34,34 0,1 1,54 20Z" />
 
-    <!-- Minute hand (pointing to ~2 o'clock / ~10 min mark) - thinner, medium -->
-    <path
-        android:fillColor="#6B7280"
-        android:pathData="M54,52.5L55.8,29L56.2,29L54,52.5Z" />
+    <!-- Hour tick marks (12 positions, small dots) -->
+    <!-- 12 -->
+    <path android:fillColor="#1A1A2E" android:pathData="M53,23h2v5h-2z" />
+    <!-- 1 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M66.5,25.5l1,1.7l-3.5,2l-1,-1.7z" />
+    <!-- 2 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M76.5,35.5l1.7,1l-2,3.5l-1.7,-1z" />
+    <!-- 3 -->
+    <path android:fillColor="#1A1A2E" android:pathData="M80,53h5v2h-5z" />
+    <!-- 4 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M78.2,67.5l1.7,-1l2,3.5l-1.7,1z" />
+    <!-- 5 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M68.5,78.8l1,-1.7l3.5,2l-1,1.7z" />
+    <!-- 6 -->
+    <path android:fillColor="#1A1A2E" android:pathData="M53,80h2v5h-2z" />
+    <!-- 7 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M35,80.8l-1,-1.7l3.5,-2l1,1.7z" />
+    <!-- 8 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M25.8,69.5l-1.7,-1l2,-3.5l1.7,1z" />
+    <!-- 9 -->
+    <path android:fillColor="#1A1A2E" android:pathData="M23,53h5v2h-5z" />
+    <!-- 10 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M27.8,38.5l-1.7,1l-2,-3.5l1.7,-1z" />
+    <!-- 11 -->
+    <path android:fillColor="#CCCCCC" android:pathData="M37.5,27.2l-1,-1.7l3.5,-2l1,1.7z" />
 
-    <!-- Center dot -->
+    <!-- Hour hand - 10 o'clock position, thick, dark -->
     <path
-        android:fillColor="#7C3AED"
-        android:pathData="M54,54m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+        android:fillColor="#1A1A2E"
+        android:pathData="M54,54 L40,32 L42,31 L54,54Z" />
 
-    <!-- Subtle floating indicator (small arc at bottom) -->
+    <!-- Minute hand - 2 o'clock position, thinner, medium gray -->
     <path
-        android:fillColor="#DDD6FE"
-        android:pathData="M40,85Q54,80 68,85"
-        android:strokeWidth="1.5"
-        android:strokeColor="#C4B5FD"
-        android:fillType="nonZero" />
+        android:fillColor="#555555"
+        android:pathData="M54,54 L68,26 L69.5,26.8 L54,54Z" />
+
+    <!-- Second hand - thin red line pointing to ~35 sec -->
+    <path
+        android:fillColor="#FF3B30"
+        android:pathData="M54,54 L58,82 L54.5,82.1 L54,54Z" />
+    <!-- Second hand counterweight -->
+    <path
+        android:fillColor="#FF3B30"
+        android:pathData="M54,54 L51,40 L53,39.5 L54,54Z" />
+
+    <!-- Center cap -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M54,54m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-1.5,0a1.5,1.5 0,1 1,3 0a1.5,1.5 0,1 1,-3 0" />
 
 </vector>

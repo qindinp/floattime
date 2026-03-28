@@ -40,7 +40,7 @@ class ClockTileService : TileService() {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
         // 同步磁贴状态
-        val isRunning = FloatTimeService.isRunning()
+        val isRunning = try { FloatTimeService.isRunning() } catch (_: Exception) { false }
         prefs.edit().putBoolean(KEY_SERVICE_ACTIVE, isRunning).apply()
         qsTile?.apply { state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE; updateTile() }
 
@@ -55,7 +55,7 @@ class ClockTileService : TileService() {
     override fun onClick() {
         super.onClick()
 
-        val isRunning = FloatTimeService.isRunning()
+        val isRunning = try { FloatTimeService.isRunning() } catch (_: Exception) { false }
 
         if (isRunning) {
             // 停止服务
@@ -111,7 +111,7 @@ class ClockTileService : TileService() {
         super.onTileAdded()
         Log.d(TAG, "Tile added to Quick Settings")
         // 首次添加时更新状态
-        val isRunning = FloatTimeService.isRunning()
+        val isRunning = try { FloatTimeService.isRunning() } catch (_: Exception) { false }
         qsTile?.apply {
             state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             updateTile()
