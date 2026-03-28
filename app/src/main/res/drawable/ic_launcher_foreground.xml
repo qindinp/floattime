@@ -1,13 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  FloatTime App Icon - Modern Clock Design
+  Clock face with floating overlay aesthetic
+  Time: 10:10 (most aesthetically pleasing position)
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Outer ring with gradient effect (simulated with layered paths) -->
     <path
-        android:fillColor="#BB86FC"
-        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+        android:fillColor="#7C3AED"
+        android:pathData="M54,18A36,36 0,1 1,54 90A36,36 0,1 1,54 18Z" />
+
+    <!-- Clock face background -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M44,38L44,70L48,70L48,38ZM52,38L52,70L56,70L56,38ZM60,38L60,70L64,70L64,38ZM36,48L72,48L72,52L36,52ZM36,56L72,56L72,60L36,60Z" />
+        android:pathData="M54,21A33,33 0,1 1,54 87A33,33 0,1 1,54 21Z" />
+
+    <!-- Hour markers: 12, 3, 6, 9 positions (larger) -->
+    <!-- 12 o'clock -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M52.5,26L55.5,26L55.5,31L52.5,31Z" />
+    <!-- 3 o'clock -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M77,52.5L82,52.5L82,55.5L77,55.5Z" />
+    <!-- 6 o'clock -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M52.5,77L55.5,77L55.5,82L52.5,82Z" />
+    <!-- 9 o'clock -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M26,52.5L31,52.5L31,55.5L26,55.5Z" />
+
+    <!-- Hour hand (pointing to ~10 o'clock) - thicker, darker -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M52.5,54L54,34L56.5,54Z" />
+
+    <!-- Minute hand (pointing to ~2 o'clock / ~10 min mark) - thinner, medium -->
+    <path
+        android:fillColor="#6B7280"
+        android:pathData="M54,52.5L55.8,29L56.2,29L54,52.5Z" />
+
+    <!-- Center dot -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M54,54m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+
+    <!-- Subtle floating indicator (small arc at bottom) -->
+    <path
+        android:fillColor="#DDD6FE"
+        android:pathData="M40,85Q54,80 68,85"
+        android:strokeWidth="1.5"
+        android:strokeColor="#C4B5FD"
+        android:fillType="nonZero" />
+
 </vector>

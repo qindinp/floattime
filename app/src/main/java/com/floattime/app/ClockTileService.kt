@@ -60,12 +60,12 @@ class ClockTileService : TileService() {
         if (isRunning) {
             // 停止服务
             stopService()
-            updateTile(Tile.STATE_INACTIVE)
+            applyTileState(Tile.STATE_INACTIVE)
             Log.d(TAG, "Tile clicked: stopping service")
         } else {
             // 启动服务
             startService()
-            updateTile(Tile.STATE_ACTIVE)
+            applyTileState(Tile.STATE_ACTIVE)
             Log.d(TAG, "Tile clicked: starting service")
         }
     }
@@ -94,7 +94,7 @@ class ClockTileService : TileService() {
         }
     }
 
-    private fun updateTile(state: Int) {
+    private fun applyTileState(state: Int) {
         qsTile?.apply {
             this.state = state
             updateTile()
