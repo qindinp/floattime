@@ -59,7 +59,6 @@ dependencies {
 
     // AndroidX Window Extensions（Live Island 核心 API）
     implementation("androidx.window:window:1.3.0")
-    implementation("androidx.window:window-core:1.3.0")
 
     // AndroidX Startup
     implementation("androidx.startup:startup-runtime:1.1.1")
@@ -71,7 +70,6 @@ dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5@aar")
 
-    // window-extensions — compileOnly：编译期用于类型检查，
-    // 运行时由 MIUI 系统提供实际实现，不打包进 APK
-    compileOnly("androidx.window:window-extensions:1.0.0")
+    // window-extensions: 运行时由 MIUI/HyperOS 系统私有实现提供，
+    // 不在公共仓库，Kotlin 代码通过反射调用，不需 compileOnly 依赖
 }
