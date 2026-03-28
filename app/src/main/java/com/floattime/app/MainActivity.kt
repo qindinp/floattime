@@ -17,7 +17,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.RadioButton
 import android.widget.RadioGroup
-import android.widget.Switch
+import androidx.appcompat.widget.SwitchCompat
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -62,7 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var themeAuto: RadioButton
     private lateinit var themeLight: RadioButton
     private lateinit var themeDark: RadioButton
-    private lateinit var floatWindowSwitch: Switch
+    private lateinit var floatWindowSwitch: SwitchCompat
 
     private lateinit var prefs: SharedPreferences
     private lateinit var liveUpdateManager: LiveUpdateManager
