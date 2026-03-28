@@ -66,4 +66,12 @@ dependencies {
 
     // Multidex
     implementation("androidx.multidex:multidex:2.0.1")
+
+    // Shizuku API — 通过 Shizuku 获取特权操作能力
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5@aar")
+
+    // window-extensions — compileOnly：编译期用于类型检查，
+    // 运行时由 MIUI 系统提供实际实现，不打包进 APK
+    compileOnly("androidx.window:window-extensions:1.0.0")
 }

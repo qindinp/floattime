@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFCF8F5"
+    android:fillViewport="true"
+    tools:context=".TimeFragment">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="48dp"
+        android:paddingBottom="16dp"
+        android:gravity="center_horizontal">
+
+        <!-- 状态栏信息 -->
+        <TextView
+            android:id="@+id/appTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="R142"
+            android:textSize="24sp"
+            android:textColor="#FF1A1A2E"
+            android:textStyle="bold" />
+
+        <!-- 日期副标题 -->
+        <TextView
+            android:id="@+id/dateSubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="14sp"
+            android:textColor="#FF999999"
+            tools:text="2026/02/08 普通的一天" />
+
+        <!-- 大圆环进度 -->
+        <com.floattime.app.CircularProgressView
+            android:id="@+id/circleProgress"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_marginTop="24dp" />
+
+        <!-- 今天已过去的占比 -->
+        <TextView
+            android:id="@+id/percentLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textSize="16sp"
+            android:textColor="#FF666666"
+            tools:text="今天已过去 33.3%" />
+
+        <!-- 当前运行时间 -->
+        <TextView
+            android:id="@+id/runTimeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="16sp"
+            android:textColor="#FFFF6B35"
+            android:textStyle="bold"
+            tools:text="当前运行时间: 5d 17h" />
+
+        <!-- 三张信息卡片 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="24dp"
+            android:layout_marginStart="20dp"
+            android:layout_marginEnd="20dp"
+            android:gravity="center">
+
+            <!-- 今天 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/info_card_bg"
+                android:padding="16dp"
+                android:layout_marginEnd="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="今天"
+                    android:textSize="12sp"
+                    android:textColor="#FF999999" />
+
+                <TextView
+                    android:id="@+id/cardTodayPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="20sp"
+                    android:textColor="#FF1A1A2E"
+                    android:textStyle="bold"
+                    tools:text="33.3%" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/progress_bar_bg">
+
+                    <View
+                        android:id="@+id/cardTodayBar"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/progress_bar_fill" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- 本月 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/info_card_bg"
+                android:padding="16dp"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="本月"
+                    android:textSize="12sp"
+                    android:textColor="#FF999999" />
+
+                <TextView
+                    android:id="@+id/cardMonthPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="20sp"
+                    android:textColor="#FF1A1A2E"
+                    android:textStyle="bold"
+                    tools:text="30.6%" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/progress_bar_bg">
+
+                    <View
+                        android:id="@+id/cardMonthBar"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/progress_bar_fill" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- 今年 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/info_card_bg"
+                android:padding="16dp"
+                android:layout_marginStart="6dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="今年"
+                    android:textSize="12sp"
+                    android:textColor="#FF999999" />
+
+                <TextView
+                    android:id="@+id/cardYearPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="20sp"
+                    android:textColor="#FF1A1A2E"
+                    android:textStyle="bold"
+                    tools:text="9.4%" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/progress_bar_bg">
+
+                    <View
+                        android:id="@+id/cardYearBar"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/progress_bar_fill" />
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
