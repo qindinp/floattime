@@ -1,74 +1,130 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/rootLayout"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFCF8F5">
+    android:padding="24dp">
 
-    <!-- 主内容区域 (状态页) -->
-    <FrameLayout
-        android:id="@+id/fragmentContainer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
-    <!-- 底部抽屉 (Bottom Sheet) -->
     <LinearLayout
-        android:id="@+id/bottomSheet"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@drawable/bottom_sheet_bg"
-        app:behavior_hideable="false"
-        app:behavior_peekHeight="72dp"
-        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+        android:gravity="center_horizontal">
 
-        <!-- Tab 切换栏 -->
+        <TextView
+            android:id="@+id/versionText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FloatTime"
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:id="@+id/currentTimeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--:--.---"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/timezoneText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="GMT+0"
+            android:textSize="16sp"
+            android:layout_marginBottom="32dp" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="服务未启动"
+            android:textSize="18sp"
+            android:layout_marginBottom="24dp" />
+
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="72dp"
+            android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="32dp"
-            android:paddingEnd="32dp">
+            android:gravity="center"
+            android:layout_marginBottom="24dp">
 
-            <TextView
-                android:id="@+id/tabStatus"
+            <Button
+                android:id="@+id/startBtn"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="状态"
-                android:textSize="15sp"
-                android:textColor="#FFFF6B35"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:padding="12dp" />
+                android:text="启动"
+                android:layout_marginEnd="8dp" />
 
-            <TextView
-                android:id="@+id/tabService"
+            <Button
+                android:id="@+id/stopBtn"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="服务"
-                android:textSize="15sp"
-                android:textColor="#FF999999"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:padding="12dp" />
-
+                android:text="停止"
+                android:layout_marginStart="8dp"
+                android:enabled="false" />
         </LinearLayout>
 
-        <!-- Tab 内容区域 -->
-        <FrameLayout
-            android:id="@+id/tabContent"
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="主题设置"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/themeGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/themeAuto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="跟随系统"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/themeLight"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="浅色"
+                android:layout_marginStart="16dp" />
+
+            <RadioButton
+                android:id="@+id/themeDark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="深色"
+                android:layout_marginStart="16dp" />
+        </RadioGroup>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="280dp"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:paddingBottom="32dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp">
 
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="悬浮窗显示"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/floatWindowSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true" />
+        </LinearLayout>
     </LinearLayout>
-
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</ScrollView>
