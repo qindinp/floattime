@@ -128,7 +128,7 @@ class IslandManager(private val context: Context) {
     //  Uses a package-level LhState object for reflection caching.
     // ==============================================================
 
-    class LiveIslandHandler constructor(
+    internal class LiveIslandHandler constructor(
         private val ctx: Context,
         private val nm: NotificationManager
     ) {
@@ -425,7 +425,7 @@ class IslandManager(private val context: Context) {
 //  Avoids companion-object-inside-inner-class restriction
 // ==============================================================
 
-private object LhState {
+object LhState {
     const val TAG = "LiveIslandHandler"
 
     private var windowAreaPresentation: Class<*>? = null

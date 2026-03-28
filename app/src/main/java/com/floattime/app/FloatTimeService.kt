@@ -377,7 +377,7 @@ class FloatTimeService : Service() {
 
     private val versionName: String
         get() = try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+            applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).versionName ?: "1.0"
         } catch (_: Exception) { "1.0" }
 
     private fun log(msg: String) = Log.d(TAG, msg)
