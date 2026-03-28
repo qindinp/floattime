@@ -441,7 +441,7 @@ object LhState {
     fun getRegisterMethod() = registerMethod
     fun getUnregisterMethod() = unregisterMethod
 
-    fun tryCreate(c: Context, n: NotificationManager): IslandManager.LiveIslandHandler? {
+    internal fun tryCreate(c: Context, n: NotificationManager): IslandManager.LiveIslandHandler? {
         if (checked) return if (supported) IslandManager.LiveIslandHandler(c, n) else null
         checked = true
         try {
