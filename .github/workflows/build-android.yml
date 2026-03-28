@@ -2,9 +2,9 @@ name: Build Android APK
 
 on:
   push:
-    branches: [kotlin, main, feature/live-island]
+    branches: [main]
   pull_request:
-    branches: [kotlin, main]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
