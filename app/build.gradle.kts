@@ -54,9 +54,6 @@ dependencies {
     implementation("androidx.window:window:1.3.0")
     implementation("androidx.window:window-core:1.3.0")
 
-    // MIUI Extensions（小米 HyperOS 定制，compileOnly）
-    compileOnly("androidx.window:window-extensions:1.0.0-alpha04")
-
     // AndroidX Startup
     implementation("androidx.startup:startup-runtime:1.1.1")
 
