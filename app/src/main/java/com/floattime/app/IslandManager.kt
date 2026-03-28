@@ -128,7 +128,7 @@ class IslandManager(private val context: Context) {
     //  Uses a package-level LhState object for reflection caching.
     // ==============================================================
 
-    private class LiveIslandHandler private constructor(
+    private class LiveIslandHandler internal constructor(
         private val ctx: Context,
         private val nm: NotificationManager
     ) {
@@ -322,6 +322,7 @@ class IslandManager(private val context: Context) {
         private fun isHyperOSDevice(): Boolean {
             cachedHyperOS?.let { return it }
             val result: Boolean
+            var result = false
             try {
                 val clazz = Class.forName("android.os.SystemProperties")
                 val prop = clazz.getMethod("get", String::class.java)
