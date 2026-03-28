@@ -2,7 +2,6 @@ package com.floattime.app
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,7 +14,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -29,16 +27,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 悬浮时间前台服务 (v3 - Live Island 集成版)
+ * FloatTimeService - 悬浮时间前台服务 (Live Island 集成版 v3)
  *
- * 相比 v2 的改动:
- * - ✅ 新增: WindowAreaManager - 真正的 AndroidX Window Extensions API 接入 Live Island
- * - ✅ 新增: ClockTileService - 系统快捷设置磁贴入口
- * - ✅ 新增: NotificationLiveUpdate - Android 16 Notification Live Updates (ProgressStyle)
- * - ✅ 新增: HyperIslandManager - MIUI HyperOS 焦点通知增强
- * - ✅ 新增: ExtensionVersion 检测 - 运行时判断设备 Live Island 能力
- * - ✅ 提升: compileSdk/targetSdk 34 → 36, minSdk 27 → 30
- * - ✅ 移除: 原 SuperIslandManager (JSON 注入方案，替换为真正的 Extensions API)
+ * 三层前台服务架构:
+ * - LiveIslandHandler: Android 16+ AndroidX Window Extensions
+ * - HyperIslandHandler: MIUI HyperOS 焦点通知
+ * - NotificationHandler: 所有设备通知栏兜底
  */
 class FloatTimeService : Service() {
 
@@ -54,7 +48,7 @@ class FloatTimeService : Service() {
         private const val CONNECT_TIMEOUT_MS = 8000L
         private const val READ_TIMEOUT_MS = 8000L
         private const val SAVE_THROTTLE_MS = 5000L
-        private const val NOTIFICATION_UPDATE_MIN_INTERVAL_MS = 500L  // 降低更新间隔
+        private const val NOTIFICATION_UPDATE_MIN_INTERVAL_MS = 500L
         private const val NOTIFICATION_PERSISTENCE_CHECK_INTERVAL_MS = 3000L
 
         // ThreadLocal SimpleDateFormat: 每线程独立实例，零锁竞争
@@ -62,9 +56,9 @@ class FloatTimeService : Service() {
             SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         }
 
-        // 毫秒格式化 (独立，避免重复创建)
+        // 毫秒格式化
         private val MS_FORMAT = ThreadLocal.withInitial {
-            SimpleDateFormat("SSS", Locale.US)  // Locale.US 保证3位数字
+            SimpleDateFormat("SSS", Locale.US)
         }
 
         @Volatile
@@ -111,14 +105,14 @@ class FloatTimeService : Service() {
         }
     }
 
-    // OkHttp 单例客户端（连接池，复用连接）
+    // OkHttp 单例客户端
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
-    // ExecutorService 单例（单线程，避免并发问题）
+    // ExecutorService 单线程池
     private val syncExecutor: ExecutorService = Executors.newSingleThreadExecutor { r ->
         Thread(r, "FloatTimeSync").apply { isDaemon = true }
     }
@@ -129,14 +123,11 @@ class FloatTimeService : Service() {
         handler = Handler(Looper.getMainLooper())
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        // ✅ 核心改动: IslandManager 替换原 SuperIslandManager
-        // 统一管理: Live Island (AndroidX) + 焦点通知 (MIUI) + 通知栏 (兼容)
         islandManager = IslandManager(this)
-
         loadPreferences()
         notifMgr = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
-        val filter = android.content.IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
+        val filter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(networkReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
@@ -148,9 +139,8 @@ class FloatTimeService : Service() {
         handler.postDelayed({
             try {
                 startForeground(NOTIFICATION_ID, createNotification())
-                // ✅ 通知启动后，同时激活 Live Island
                 islandManager.show(currentTimeStr, currentMillisStr, sourceDisplayName, isNightMode)
-                Log.d(TAG, "Foreground service + Island started")
+                Log.d(TAG, "Foreground + Island started")
             } catch (e: Exception) {
                 Log.e(TAG, "startForeground error: ${e.message}")
             }
@@ -158,7 +148,6 @@ class FloatTimeService : Service() {
 
         ensureNotificationPersistent()
         syncTime()
-
         Log.d(TAG, "FloatTimeService started | Island: ${islandManager.describe()}")
     }
 
@@ -172,8 +161,7 @@ class FloatTimeService : Service() {
 
     private fun getTimezoneAbbr(): String {
         return try {
-            val tz = java.util.TimeZone.getDefault()
-            tz.getDisplayName(isNightMode, java.util.TimeZone.SHORT, Locale.getDefault())
+            TimeZone.getDefault().getDisplayName(isNightMode, TimeZone.SHORT, Locale.getDefault())
         } catch (_: Exception) {
             ""
         }
@@ -182,7 +170,6 @@ class FloatTimeService : Service() {
     private fun createNotification(): Notification {
         val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
         val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
-
         return try {
             islandManager.createNotification(timeStr, millisStr, sourceDisplayName, isNightMode)
         } catch (e: Exception) {
@@ -191,13 +178,14 @@ class FloatTimeService : Service() {
         }
     }
 
-    private fun createFallbackNotification(): Notification =
-        NotificationCompat.Builder(this, IslandManager.CHANNEL_ID)
+    private fun createFallbackNotification(): Notification {
+        return NotificationCompat.Builder(this, IslandManager.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("悬浮时间")
             .setContentText("服务运行中")
             .setOngoing(true)
             .build()
+    }
 
     private fun startClock() {
         timeRunnable = object : Runnable {
@@ -211,7 +199,6 @@ class FloatTimeService : Service() {
     private fun updateTime() {
         try {
             val now = System.currentTimeMillis() + offsetMs
-
             currentTimeStr = TIME_FORMATTER.get().format(Date(now))
             currentMillisStr = MS_FORMAT.get().format(Date(now))
 
@@ -219,9 +206,8 @@ class FloatTimeService : Service() {
             if (newNight != isNightMode) {
                 isNightMode = newNight
                 cachedTimezoneAbbr = getTimezoneAbbr()
-                Log.d(TAG, "Theme switched: ${if (isNightMode) "dark" else "light"}")
-                // ✅ 主题切换时重建 Live Island
                 islandManager.onThemeChanged(isNightMode)
+                Log.d(TAG, "Theme switched: ${if (isNightMode) "dark" else "light"}")
             }
 
             updateNotification()
@@ -232,21 +218,15 @@ class FloatTimeService : Service() {
 
     private fun updateNotification() {
         if (!::notifMgr.isInitialized) return
-
         val now = System.currentTimeMillis()
-        if (now - lastNotificationUpdateTime < NOTIFICATION_UPDATE_MIN_INTERVAL_MS) {
-            return
-        }
+        if (now - lastNotificationUpdateTime < NOTIFICATION_UPDATE_MIN_INTERVAL_MS) return
         lastNotificationUpdateTime = now
 
         try {
             val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
             val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
-
             val notification = islandManager.createNotification(timeStr, millisStr, sourceDisplayName, isNightMode)
             notifMgr.notify(NOTIFICATION_ID, notification)
-
-            // ✅ 同步更新 Live Island
             islandManager.update(timeStr, millisStr, sourceDisplayName, isNightMode)
         } catch (e: Exception) {
             Log.e(TAG, "updateNotification error: ${e.message}")
@@ -290,14 +270,11 @@ class FloatTimeService : Service() {
             offsetMs = 0
             saveOffset()
             islandManager.showSyncResult(true, "local", 0)
-            Log.d(TAG, "Local time mode, offset=0")
             isSyncing.set(false)
             return
         }
 
-        Log.d(TAG, "Syncing time from: $timeSource")
         islandManager.showSyncStatus(true, timeSource)
-
         syncExecutor.submit {
             try {
                 doSync()
@@ -317,26 +294,19 @@ class FloatTimeService : Service() {
 
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "FloatTime/" + getVersion(this))
+            .header("User-Agent", "FloatTime/$versionName")
             .header("Accept", "application/json")
             .build()
 
         try {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    postSyncFailed()
-                    return
+                    postSyncFailed(); return
                 }
-
-                val responseBody = response.body?.string() ?: run {
-                    postSyncFailed()
-                    return
-                }
-
+                val body = response.body?.string() ?: run { postSyncFailed(); return }
                 val localAfter = System.currentTimeMillis()
                 val localMid = (localBefore + localAfter) / 2
-                val serverTime = parseServerTime(responseBody)
-
+                val serverTime = parseServerTime(body)
                 if (serverTime > 0) {
                     offsetMs = serverTime - localMid
                     saveOffset()
@@ -344,7 +314,6 @@ class FloatTimeService : Service() {
                     Log.d(TAG, "Time synced: offset=$offsetMs ms")
                 } else {
                     postSyncFailed()
-                    Log.d(TAG, "Failed to parse server time")
                 }
             }
         } catch (e: IOException) {
@@ -355,17 +324,13 @@ class FloatTimeService : Service() {
 
     private fun postSyncSuccess() {
         handler.post {
-            try {
-                islandManager.showSyncResult(true, timeSource, offsetMs)
-            } catch (_: Exception) {}
+            try { islandManager.showSyncResult(true, timeSource, offsetMs) } catch (_: Exception) {}
         }
     }
 
     private fun postSyncFailed() {
         handler.post {
-            try {
-                islandManager.showSyncResult(false, timeSource, 0)
-            } catch (_: Exception) {}
+            try { islandManager.showSyncResult(false, timeSource, 0) } catch (_: Exception) {}
         }
     }
 
@@ -407,13 +372,10 @@ class FloatTimeService : Service() {
             else -> "本地时间"
         }
 
-    private fun getVersion(ctx: Context): String {
-        return try {
-            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "1.0"
-        } catch (_: Exception) {
-            "1.0"
-        }
-    }
+    private val versionName: String
+        get() = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+        } catch (_: Exception) { "1.0" }
 
     private fun log(msg: String) = Log.d(TAG, msg)
 
@@ -431,28 +393,18 @@ class FloatTimeService : Service() {
                 isNightMode = calcNightMode(mode)
                 cachedTimezoneAbbr = getTimezoneAbbr()
                 islandManager.onThemeChanged(isNightMode)
-                Log.d(TAG, "Theme changed to: $mode, night=$isNightMode")
             }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        log("onDestroy called")
         sIsRunning = false
-
-        try {
-            unregisterReceiver(networkReceiver)
-        } catch (_: Exception) {}
-
-        if (::islandManager.isInitialized) {
-            islandManager.destroy()
-        }
-
+        try { unregisterReceiver(networkReceiver) } catch (_: Exception) {}
+        if (::islandManager.isInitialized) islandManager.destroy()
         timeRunnable?.let { handler.removeCallbacks(it) }
         persistenceCheckRunnable?.let { handler.removeCallbacks(it) }
         prefs.edit().putLong(KEY_OFFSET_MS, offsetMs).apply()
-
         super.onDestroy()
     }
 

@@ -251,8 +251,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         timeRunnable?.let { handler.removeCallbacks(it) }
-        if (::liveUpdateManager.isInitialized) {
-            liveUpdateManager.clearAll()
+        if (::islandManager.isInitialized) {
+            islandManager.destroy()
         }
     }
 

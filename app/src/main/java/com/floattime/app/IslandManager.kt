@@ -210,7 +210,7 @@ class IslandManager(private val context: Context) {
     //  Android 16+ (API 36) Live Island / Android 15 (API 35) Live Activity
     // ==============================================================
 
-    class LiveIslandHandler private constructor(
+    inner class LiveIslandHandler private constructor(
         private val context: Context,
         private val notifMgr: NotificationManager
     ) {
@@ -285,18 +285,18 @@ class IslandManager(private val context: Context) {
                         // 获取 WindowAreaManager
                         val wamField = wac::class.java.getDeclaredField("mWindowAreaManager")
                         wamField.isAccessible = true
-                        windowAreaManager = wamField.get(wac)
+                        windowAreaManager = wamField.get(wac)!!
 
                         registerWindowAreaPresentation_method =
-                            windowAreaManager::class.java.getMethod(
+                            (windowAreaManager as Any)::class.java.getMethod(
                                 "registerWindowAreaPresentation",
-                                windowAreaPresentation_clazz,
+                                windowAreaPresentation_clazz as Class<Any>,
                                 android.os.Handler::class.java
                             )
                         unregisterWindowAreaPresentation_method =
-                            windowAreaManager::class.java.getMethod(
+                            (windowAreaManager as Any)::class.java.getMethod(
                                 "unregisterWindowAreaPresentation",
-                                windowAreaPresentation_clazz
+                                windowAreaPresentation_clazz as Class<Any>
                             )
 
                         supported = true
@@ -494,7 +494,7 @@ class IslandManager(private val context: Context) {
     //  小米/红米/POCO 设备专有
     // ==============================================================
 
-    class HyperIslandHandler(
+    inner class HyperIslandHandler(
         private val context: Context,
         private val notifMgr: NotificationManager
     ) {
@@ -516,15 +516,15 @@ class IslandManager(private val context: Context) {
 
             fun isHyperOSDevice(): Boolean {
                 cachedHyperOS?.let { return it }
-                val result = try {
+                val result: Boolean
+                try {
                     val clazz = Class.forName("android.os.SystemProperties")
                     val prop = clazz.getMethod("get", String::class.java)
                         .invoke(null, "ro.mi.os.version.incremental") as? String
-                    !prop.isNullOrEmpty()
+                    result = !prop.isNullOrEmpty()
                 } catch (_: Exception) {
-                    Build.MANUFACTURER.lowercase().let {
-                        it.contains("xiaomi") || it.contains("redmi") || it.contains("poco")
-                    }
+                    val m = Build.MANUFACTURER.lowercase()
+                    result = m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
                 }
                 cachedHyperOS = result
                 return result
@@ -639,7 +639,7 @@ class IslandManager(private val context: Context) {
     //  Android 16+ 同时支持 Notification ProgressStyle Live Updates
     // ==============================================================
 
-    class NotificationHandler(
+    inner class NotificationHandler(
         private val context: Context,
         private val notifMgr: NotificationManager
     ) {
