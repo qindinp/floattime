@@ -315,13 +315,15 @@ class LiveUpdateManager(context: Context) {
         if (Build.VERSION.SDK_INT < 36 || progressStyleClass == null) return null
         return try {
             val style = progressStyleClass
-                ?: return.getDeclaredConstructor().newInstance()
+                ?.getDeclaredConstructor()
+                ?.newInstance()
+                ?: return null
             setStyledByProgress
-                ?: return.invoke(style, false)
+                ?.invoke(style, false)
             setProgress
-                ?: return.invoke(style, progress)
+                ?.invoke(style, progress)
             setProgressSegments
-                ?: return.invoke(style, segments)
+                ?.invoke(style, segments)
             setProgressPoints
                 ?: return.invoke(style, points)
             style
