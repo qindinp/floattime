@@ -56,10 +56,14 @@ class LiveUpdateManager(context: Context) {
             if (reflectionCached) return
             try {
                 progressStyleClass = Class.forName("android.app.Notification\$ProgressStyle")
-                setStyledByProgress = progressStyleClass!!.getMethod("setStyledByProgress", Boolean::class.javaPrimitiveType)
-                setProgress = progressStyleClass!!.getMethod("setProgress", Int::class.javaPrimitiveType)
-                setProgressSegments = progressStyleClass!!.getMethod("setProgressSegments", List::class.java)
-                setProgressPoints = progressStyleClass!!.getMethod("setProgressPoints", List::class.java)
+                setStyledByProgress = progressStyleClass
+                ?: return.getMethod("setStyledByProgress", Boolean::class.javaPrimitiveType)
+                setProgress = progressStyleClass
+                ?: return.getMethod("setProgress", Int::class.javaPrimitiveType)
+                setProgressSegments = progressStyleClass
+                ?: return.getMethod("setProgressSegments", List::class.java)
+                setProgressPoints = progressStyleClass
+                ?: return.getMethod("setProgressPoints", List::class.java)
 
                 segmentClass = Class.forName("android.app.Notification\$ProgressStyle\$Segment")
                 pointClass = Class.forName("android.app.Notification\$ProgressStyle\$Point")
@@ -310,11 +314,16 @@ class LiveUpdateManager(context: Context) {
     private fun createProgressStyle(progress: Int, segments: List<Any>, points: List<Any>): Any? {
         if (Build.VERSION.SDK_INT < 36 || progressStyleClass == null) return null
         return try {
-            val style = progressStyleClass!!.getDeclaredConstructor().newInstance()
-            setStyledByProgress!!.invoke(style, false)
-            setProgress!!.invoke(style, progress)
-            setProgressSegments!!.invoke(style, segments)
-            setProgressPoints!!.invoke(style, points)
+            val style = progressStyleClass
+                ?: return.getDeclaredConstructor().newInstance()
+            setStyledByProgress
+                ?: return.invoke(style, false)
+            setProgress
+                ?: return.invoke(style, progress)
+            setProgressSegments
+                ?: return.invoke(style, segments)
+            setProgressPoints
+                ?: return.invoke(style, points)
             style
         } catch (e: Exception) {
             Log.e(TAG, "createProgressStyle failed: ${e.message}")

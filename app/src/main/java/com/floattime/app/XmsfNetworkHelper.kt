@@ -61,7 +61,8 @@ object XmsfNetworkHelper {
                 .processNameSuffix("privileged")
                 .debuggable(false)
                 .version(2)
-            Shizuku.bindUserService(sUserServiceArgs!!, sConnection)
+            Shizuku.bindUserService(sUserServiceArgs
+                ?: return Log.e(TAG, "sUserServiceArgs is null"), sConnection)
             Log.d(TAG, "Binding Shizuku UserService (daemon=true, version=2)...")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to bind UserService: ${e.message}")

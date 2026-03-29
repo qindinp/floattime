@@ -466,12 +466,14 @@ object LhState {
 
                 registerMethod = (windowAreaManager as Any).javaClass.getMethod(
                     "registerWindowAreaPresentation",
-                    windowAreaPresentation!!,
+                    windowAreaPresentation
+                        ?: throw IllegalStateException("WindowAreaPresentation not loaded"),
                     android.os.Handler::class.java
                 )
                 unregisterMethod = (windowAreaManager as Any).javaClass.getMethod(
                     "unregisterWindowAreaPresentation",
-                    windowAreaPresentation!!
+                    windowAreaPresentation
+                        ?: throw IllegalStateException("WindowAreaPresentation not loaded")
                 )
                 supported = true
                 Log.d(TAG, "Live Island supported (API $sdkInt, extVer=$extensionVersion)")
