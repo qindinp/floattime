@@ -319,7 +319,7 @@ class LiveUpdateManager(context: Context) {
             setStyledByProgress?.invoke(style, false)
             setProgress?.invoke(style, progress)
             setProgressSegments?.invoke(style, segments)
-            setProgressPoints?.invoke(style, points)
+            setProgressPoints?.invoke(style, points as List<*>)
                 ?: return.invoke(style, points)
             style
         } catch (e: Exception) {
