@@ -1,526 +1,268 @@
 package com.floattime.app
 
 import android.Manifest
-import android.app.AlertDialog
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Log
-import android.view.View
-import android.widget.Button
+import android.view.Gravity
+import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
-import androidx.appcompat.widget.SwitchCompat
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.appcompat.widget.SwitchCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
-/**
- * 主界面 - 负责权限申请、服务启动、主题设置 (修复版)
- *
- * 修复内容:
- * - ✅ 完善权限检查 (FOREGROUND_SERVICE, POST_NOTIFICATIONS, SYSTEM_ALERT_WINDOW)
- * - ✅ 改进权限请求流程
- * - ✅ 增强错误处理
- */
 class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val TAG = "MainActivity"
-        private const val PREFS_NAME = "FloatTimePrefs"
-        private const val KEY_THEME_MODE = "theme_mode"
-        private const val KEY_PERMISSIONS_REQUESTED = "permissions_requested"
+    // ViewBinding — ECC android-clean-architecture: no findViewById
+    private lateinit var binding: ActivityMainBinding
 
-        // ✅ 修复: 权限请求码
-        private const val REQUEST_CODE_OVERLAY = 1001
-        private const val REQUEST_CODE_NOTIFICATION = 1002
-        private const val REQUEST_CODE_FOREGROUND_SERVICE = 1003
-    }
+    // SettingsRepository — ECC clean-architecture: encapsulate SharedPreferences
+    private lateinit var settings: SettingsRepository
 
-    private lateinit var startBtn: Button
-    private lateinit var stopBtn: Button
-    private lateinit var statusText: TextView
-    private lateinit var timezoneText: TextView
-    private lateinit var currentTimeText: TextView
-    private lateinit var versionText: TextView
-    private lateinit var themeGroup: RadioGroup
-    private lateinit var themeAuto: RadioButton
-    private lateinit var themeLight: RadioButton
-    private lateinit var themeDark: RadioButton
-    private lateinit var floatWindowSwitch: SwitchCompat
-    private lateinit var sourceGroup: RadioGroup
-    private lateinit var sourceLocal: RadioButton
-    private lateinit var sourceTaobao: RadioButton
-    private lateinit var sourceMeituan: RadioButton
-    private lateinit var superIslandSwitch: SwitchCompat
-    private lateinit var superIslandHint: TextView
-    private lateinit var sourceText: TextView
-
-    private lateinit var prefs: SharedPreferences
-    private lateinit var liveUpdateManager: LiveUpdateManager
-    private lateinit var handler: Handler
-    private var timeRunnable: Runnable? = null
-
-    private val overlayPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (Settings.canDrawOverlays(this)) {
-                checkNotificationPermissionAndStart()
-            } else {
-                showStatus("❌ 需要悬浮窗权限")
-            }
-        }
-    }
+    private val handler = Handler(Looper.getMainLooper())
+    private var currentTimeRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        // 启用暗夜模式支持 - 跟随系统设置
-        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        settings = SettingsRepository(this)
 
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        liveUpdateManager = LiveUpdateManager(this)
-
-        setContentView(R.layout.activity_main)
-
-        // 初始化 View
-        startBtn = findViewById(R.id.startBtn)
-        stopBtn = findViewById(R.id.stopBtn)
-        statusText = findViewById(R.id.statusText)
-        timezoneText = findViewById(R.id.timezoneText)
-        currentTimeText = findViewById(R.id.currentTimeText)
-        versionText = findViewById(R.id.versionText)
-        themeGroup = findViewById(R.id.themeGroup)
-        themeAuto = findViewById(R.id.themeAuto)
-        themeLight = findViewById(R.id.themeLight)
-        themeDark = findViewById(R.id.themeDark)
-        floatWindowSwitch = findViewById(R.id.floatWindowSwitch)
-        sourceGroup = findViewById(R.id.sourceGroup)
-        sourceLocal = findViewById(R.id.sourceLocal)
-        sourceTaobao = findViewById(R.id.sourceTaobao)
-        sourceMeituan = findViewById(R.id.sourceMeituan)
-        superIslandSwitch = findViewById(R.id.superIslandSwitch)
-        superIslandHint = findViewById(R.id.superIslandHint)
-        sourceText = findViewById(R.id.sourceText)
-
-        startBtn.setOnClickListener { checkOverlayPermission() }
-        stopBtn.setOnClickListener { stopFloatingService() }
-
-        // 悬浮窗开关
-        floatWindowSwitch.isChecked = prefs.getBoolean("float_window_enabled", true)
-        floatWindowSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean("float_window_enabled", isChecked).apply()
-            if (FloatTimeService.isRunning()) {
-                stopFloatingService()
-                handler.postDelayed({ checkOverlayPermission() }, 500)
-            }
-        }
-
-        versionText.text = "FloatTime v1.3.0"
-
-        // 时间来源选择
+        setupTimeDisplay()
+        setupServiceControls()
         setupSourceSelector()
-
-        // 超级岛设置
         setupSuperIsland()
-
         setupThemeSelector()
-        applyThemeMode(prefs.getInt(KEY_THEME_MODE, 0))
-
-        displayTimezone()
-        startMainClock()
-        updateStatus()
-
-        // 首次启动请求权限
-        if (!prefs.getBoolean(KEY_PERMISSIONS_REQUESTED, false)) {
-            requestInitialPermissions()
-            prefs.edit().putBoolean(KEY_PERMISSIONS_REQUESTED, true).apply()
-        }
-
-        Log.d(TAG, "MainActivity onCreate - Dark mode enabled, permissions checked")
+        setupFloatWindow()
+        applyTheme()
+        updateServiceStatus()
     }
 
-    /**
-     * 请求初始权限 (修复版)
-     */
-    private fun requestInitialPermissions() {
-        Log.d(TAG, "Requesting initial permissions")
+    override fun onResume() {
+        super.onResume()
+        startClockUpdates()
+        updateServiceStatus()
+    }
 
-        // ✅ 修复: Android 12+ 请求前台服务权限
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
-                )
+    override fun onPause() {
+        super.onPause()
+        stopClockUpdates()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopClockUpdates()
+    }
+
+    // --- Clock Display ---
+
+    private fun setupTimeDisplay() {
+        updateMainTime()
+    }
+
+    private fun startClockUpdates() {
+        stopClockUpdates()
+        val runnable = object : Runnable {
+            override fun run() {
+                updateMainTime()
+                currentTimeRunnable = this
+                handler.postDelayed(this, 100)
             }
         }
+        currentTimeRunnable = runnable
+        handler.post(runnable)
+    }
 
-        // ✅ 修复: Android 13+ 请求通知权限
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
-                )
-            }
+    private fun stopClockUpdates() {
+        currentTimeRunnable?.let { handler.removeCallbacks(it) }
+        currentTimeRunnable = null
+    }
+
+    private fun updateMainTime() {
+        try {
+            val now = System.currentTimeMillis()
+            val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            binding.currentTimeText.text = sdf.format(Date(now))
+            binding.timezoneText.text = "GMT+${(java.util.TimeZone.getDefault().rawOffset / 3600000)}"
+        } catch (_: Exception) {}
+    }
+
+    // --- Service Controls ---
+
+    private fun setupServiceControls() {
+        binding.startBtn.setOnClickListener {
+            checkOverlayPermission()
         }
+        binding.stopBtn.setOnClickListener {
+            stopFloatingService()
+        }
+    }
 
-        // 悬浮窗权限
+    private fun checkOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            showOverlayPermissionDialog()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            startActivityForResult(intent, 1001)
+            return
         }
+        startFloatingService()
     }
 
-    private fun setupSourceSelector() {
-        val savedSource = prefs.getString("time_source", "local") ?: "local"
-        when (savedSource) {
-            "taobao" -> sourceTaobao.isChecked = true
-            "meituan" -> sourceMeituan.isChecked = true
-            else -> sourceLocal.isChecked = true
-        }
-        updateSourceText(savedSource)
-
-        sourceGroup.setOnCheckedChangeListener { _, checkedId ->
-            val source = when (checkedId) {
-                R.id.sourceTaobao -> "taobao"
-                R.id.sourceMeituan -> "meituan"
-                else -> "local"
-            }
-            prefs.edit().putString("time_source", source).apply()
-            updateSourceText(source)
-            if (FloatTimeService.isRunning()) {
-                stopFloatingService()
-                handler.postDelayed({ checkOverlayPermission() }, 500)
-            }
-        }
-    }
-
-    private fun updateSourceText(source: String) {
-        val name = when (source) {
-            "taobao" -> "淘宝服务器"
-            "meituan" -> "美团服务器"
-            else -> "本地时钟"
-        }
-        sourceText.text = "来源: $name"
-    }
-
-    private fun setupSuperIsland() {
-        val enabled = prefs.getBoolean("super_island_enabled", false)
-        superIslandSwitch.isChecked = enabled
-
-        // 检查 Shizuku 是否可用
-        // Always allow enabling - check Shizuku at service start
-        superIslandHint.text = "开启后需要 Shizuku 授权"
-
-        superIslandSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean("super_island_enabled", isChecked).apply()
-            if (isChecked && FloatTimeService.isRunning()) {
-                // 重启服务以应用超级岛
-                stopFloatingService()
-                handler.postDelayed({ checkOverlayPermission() }, 500)
-            }
-        }
-    }
-
-    private fun setupThemeSelector() {
-        when (prefs.getInt(KEY_THEME_MODE, 0)) {
-            0 -> themeAuto.isChecked = true
-            1 -> themeLight.isChecked = true
-            2 -> themeDark.isChecked = true
-        }
-
-        themeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val mode = when (checkedId) {
-                R.id.themeLight -> 1
-                R.id.themeDark -> 2
-                else -> 0
-            }
-            prefs.edit().putInt(KEY_THEME_MODE, mode).apply()
-            applyThemeMode(mode)
-
-            if (FloatTimeService.isRunning()) {
-                updateServiceTheme(mode)
-            }
-            Log.d(TAG, "Theme changed to: $mode")
-        }
-    }
-
-    private fun applyThemeMode(mode: Int) {
-        val isNight = FloatTimeService.calcNightMode(mode)
-
-        val bgColor = if (isNight) 0xFF121212.toInt() else 0xFFFFFFFF.toInt()
-        val textColor = if (isNight) 0xFFFFFFFF.toInt() else 0xFF1A1A2E.toInt()
-        val accentColor = if (isNight) 0xFF03DAC6.toInt() else 0xFFBB86FC.toInt()
-        val hintColor = if (isNight) 0xFF888888.toInt() else 0xFF666666.toInt()
-
-        findViewById<View>(android.R.id.content).setBackgroundColor(bgColor)
-
-        statusText.setTextColor(textColor)
-        timezoneText.setTextColor(textColor)
-        currentTimeText.setTextColor(textColor)
-        versionText.setTextColor(hintColor)
-        sourceText.setTextColor(hintColor)
-        superIslandHint.setTextColor(hintColor)
-
-        updateButtonStyle(startBtn, isNight, accentColor)
-        updateButtonStyle(stopBtn, isNight, accentColor)
-
-        floatWindowSwitch.setTextColor(textColor)
-    }
-
-    private fun updateButtonStyle(btn: Button?, isNight: Boolean, accentColor: Int) {
-        btn ?: return
-
-        val bgColor = if (isNight) 0xFF2A2A2A.toInt() else 0xFFE0E0E0.toInt()
-        val textColor = if (isNight) accentColor else 0xFF1A1A2E.toInt()
-
-        btn.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(12f).toFloat()
-            setColor(bgColor)
-            setStroke(dpToPx(2f), textColor)
-        }
-        btn.setTextColor(textColor)
-    }
-
-    private fun dpToPx(dp: Float): Int =
-        Math.round(dp * resources.displayMetrics.density)
-
-    private fun updateServiceTheme(mode: Int) {
+    private fun startFloatingService() {
         val intent = Intent(this, FloatTimeService::class.java).apply {
-            action = "CHANGE_THEME"
-            putExtra("mode", mode)
+            putExtra("time_source", settings.timeSource)
+            putExtra("super_island", settings.superIslandEnabled)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateStatus()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        timeRunnable?.let { handler.removeCallbacks(it) }
-        if (::liveUpdateManager.isInitialized) {
-            liveUpdateManager.clearAll()
-        }
-    }
-
-    // ==================== Live Update 公共方法 ====================
-
-    fun isSupported(): Boolean = ::liveUpdateManager.isInitialized && liveUpdateManager.isSupported()
-    fun showTimeSyncing(source: String) = liveUpdateManager.showTimeSyncing(source)
-    fun showTimeSyncSuccess(source: String, offsetMs: Long) = liveUpdateManager.showTimeSyncSuccess(source, offsetMs)
-    fun showTimeSyncFailed(source: String) = liveUpdateManager.showTimeSyncFailed(source)
-    fun startStopwatchLiveUpdate() = liveUpdateManager.startStopwatch()
-    fun pauseStopwatchLiveUpdate() = liveUpdateManager.pauseStopwatch()
-    fun stopStopwatchLiveUpdate() = liveUpdateManager.stopStopwatch()
-
-    private fun displayTimezone() {
-        val tz = TimeZone.getDefault()
-        val offset = tz.rawOffset / (1000 * 60 * 60)
-        val offsetStr = if (offset >= 0) "GMT+$offset" else "GMT$offset"
-        timezoneText.text = "${tz.id} ($offsetStr)"
-    }
-
-    private fun startMainClock() {
-        handler = Handler(Looper.getMainLooper())
-        timeRunnable = object : Runnable {
-            override fun run() {
-                updateMainTime()
-                handler.postDelayed(this, 500)
-            }
-        }.also { handler.post(it) }
-    }
-
-    private fun updateMainTime() {
-        try {
-            val now = System.currentTimeMillis()
-            val timeFmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-            currentTimeText.text = timeFmt.format(Date(now))
-        } catch (_: Exception) {}
-    }
-
-    private fun updateStatus() {
-        val running = FloatTimeService.isRunning()
-        runOnUiThread {
-            if (running) {
-                statusText.text = "✅ 悬浮时间服务运行中"
-                startBtn.isEnabled = false
-                stopBtn.isEnabled = true
-            } else {
-                statusText.text = "⭕ 服务未启动"
-                startBtn.isEnabled = true
-                stopBtn.isEnabled = false
-            }
-        }
-    }
-
-    private fun showStatus(text: String) {
-        runOnUiThread { statusText.text = text }
-    }
-
-    /**
-     * 检查悬浮窗权限 (修复版)
-     */
-    private fun checkOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // ✅ 修复: 检查悬浮窗权限
-            if (!Settings.canDrawOverlays(this)) {
-                showOverlayPermissionDialog()
-                return
-            }
-        }
-
-        // ✅ 修复: 检查前台服务权限（Android 12+）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.FOREGROUND_SERVICE), REQUEST_CODE_FOREGROUND_SERVICE
-                )
-                return
-            }
-        }
-
-        // ✅ 修复: 检查通知权限（Android 13+）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
-                )
-                return
-            }
-        }
-
-        startFloatingService()
-    }
-
-    private fun showOverlayPermissionDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("悬浮窗选项")
-            .setMessage("选择是否启用悬浮窗显示")
-            .setPositiveButton("启用悬浮窗") { _, _ ->
-                try {
-                    val intent = Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                    prefs.edit().putBoolean("float_window_enabled", true).apply()
-                    overlayPermissionLauncher.launch(intent)
-                } catch (_: Exception) {
-                    openAppSettings()
-                }
-            }
-            .setNegativeButton("仅后台运行") { _, _ ->
-                prefs.edit().putBoolean("float_window_enabled", false).apply()
-                checkNotificationPermissionAndStart()
-            }
-            .setNeutralButton("取消", null)
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun checkNotificationPermissionAndStart() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE_NOTIFICATION
-                )
-            } else {
-                startFloatingService()
-            }
-        } else {
-            startFloatingService()
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            REQUEST_CODE_NOTIFICATION, REQUEST_CODE_FOREGROUND_SERVICE -> {
-                // ✅ 修复: 权限请求后继续启动
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    startFloatingService()
-                } else {
-                    showStatus("❌ 缺少必要权限")
-                }
-            }
-        }
-    }
-
-    private fun startFloatingService() {
-        try {
-            prefs.edit().putBoolean("service_was_started", true).apply()
-            val intent = Intent(this, FloatTimeService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-
-            showStatus("✅ 悬浮时间服务已启动")
-            startBtn.isEnabled = false
-            stopBtn.isEnabled = true
-            Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show()
-            Log.d(TAG, "Service started")
-        } catch (e: Exception) {
-            showStatus("❌ 启动失败: ${e.message}")
-            Toast.makeText(this, "启动失败: ${e.message}", Toast.LENGTH_LONG).show()
-            Log.e(TAG, "Start failed: ${e.message}")
-        }
+        settings.isServiceRunning = true
+        updateServiceStatus()
+        Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show()
     }
 
     private fun stopFloatingService() {
-        try {
-            stopService(Intent(this, FloatTimeService::class.java))
+        val intent = Intent(this, FloatTimeService::class.java)
+        stopService(intent)
+        settings.isServiceRunning = false
+        updateServiceStatus()
+        Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show()
+    }
 
-            showStatus("⭕ 服务已停止")
-            startBtn.isEnabled = true
-            stopBtn.isEnabled = false
-            Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show()
-            Log.d(TAG, "Service stopped")
-        } catch (e: Exception) {
-            showStatus("❌ 停止失败: ${e.message}")
-            Log.e(TAG, "Stop failed: ${e.message}")
+    private fun updateServiceStatus() {
+        val running = settings.isServiceRunning
+        binding.statusText.text = if (running) "服务运行中" else "服务未启动"
+        binding.startBtn.isEnabled = !running
+        binding.stopBtn.isEnabled = running
+    }
+
+    // --- Time Source Selector ---
+
+    private fun setupSourceSelector() {
+        when (settings.timeSource) {
+            "taobao" -> binding.sourceTaobao.isChecked = true
+            "meituan" -> binding.sourceMeituan.isChecked = true
+            else -> binding.sourceLocal.isChecked = true
+        }
+        updateSourceText()
+
+        binding.sourceGroup.setOnCheckedChangeListener { _, checkedId ->
+            val source = when (checkedId) {
+                R.id.sourceTaobao -> "taobao"
+                R.id.sourceMeituan -> "meituan"
+                else -> "local"
+            }
+            settings.timeSource = source
+            updateSourceText()
+            if (settings.isServiceRunning) {
+                stopFloatingService()
+                handler.postDelayed({ startFloatingService() }, 500)
+            }
         }
     }
 
-    private fun openAppSettings() {
-        try {
-            startActivity(Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:$packageName")
-            ))
-        } catch (_: Exception) {}
+    private fun updateSourceText() {
+        val name = when (settings.timeSource) {
+            "taobao" -> "淘宝服务器"
+            "meituan" -> "美团服务器"
+            else -> "本地时钟"
+        }
+        binding.sourceText.text = "来源: $name"
+    }
+
+    // --- Super Island ---
+
+    private fun setupSuperIsland() {
+        binding.superIslandSwitch.isChecked = settings.superIslandEnabled
+        binding.superIslandHint.text = "开启后需要 Shizuku 授权"
+
+        binding.superIslandSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settings.superIslandEnabled = isChecked
+            if (settings.isServiceRunning) {
+                stopFloatingService()
+                handler.postDelayed({ startFloatingService() }, 500)
+            }
+        }
+    }
+
+    // --- Float Window ---
+
+    private fun setupFloatWindow() {
+        binding.floatWindowSwitch.isChecked = settings.floatWindowEnabled
+        binding.floatWindowSwitch.setOnCheckedChangeListener { _, isChecked ->
+            settings.floatWindowEnabled = isChecked
+        }
+    }
+
+    // --- Theme ---
+
+    private fun setupThemeSelector() {
+        when (settings.theme) {
+            "light" -> binding.themeLight.isChecked = true
+            "dark" -> binding.themeDark.isChecked = true
+            else -> binding.themeAuto.isChecked = true
+        }
+
+        binding.themeGroup.setOnCheckedChangeListener { _, checkedId ->
+            val theme = when (checkedId) {
+                R.id.themeLight -> "light"
+                R.id.themeDark -> "dark"
+                else -> "auto"
+            }
+            settings.theme = theme
+            applyTheme()
+        }
+    }
+
+    private fun applyTheme() {
+        val isNight = when (settings.theme) {
+            "light" -> false
+            "dark" -> true
+            else -> {
+                val currentNight = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                currentNight == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            }
+        }
+
+        val bgColor = if (isNight) 0xFF121212.toInt() else 0xFFFFFFFF.toInt()
+        val textColor = if (isNight) 0xFFFFFFFF.toInt() else 0xFF1A1A2E.toInt()
+        val accentColor = if (isNight) 0xFF03DAC6.toInt() else 0xFFBB86FC.toInt()
+        val hintColor = if (isNight) 0xFF888888.toInt() else 0xFF666666.toInt()
+
+        binding.root.setBackgroundColor(bgColor)
+
+        binding.statusText.setTextColor(textColor)
+        binding.timezoneText.setTextColor(textColor)
+        binding.currentTimeText.setTextColor(textColor)
+        binding.versionText.setTextColor(hintColor)
+        binding.sourceText.setTextColor(hintColor)
+        binding.superIslandHint.setTextColor(hintColor)
+
+        // Update button styles
+        val startBtnBg = if (isNight) 0xFF03DAC6.toInt() else 0xFF6200EE.toInt()
+        val stopBtnBg = if (isNight) 0xFF757575.toInt() else 0xFF757575.toInt()
+        binding.startBtn.setBackgroundColor(startBtnBg)
+        binding.stopBtn.setBackgroundColor(stopBtnBg)
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
+
+        fun isRunning(): Boolean = false
     }
 }
