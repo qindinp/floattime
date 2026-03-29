@@ -320,7 +320,6 @@ class LiveUpdateManager(context: Context) {
             setProgress?.invoke(style, progress)
             setProgressSegments?.invoke(style, segments)
             setProgressPoints?.invoke(style, points as List<*>)
-                ?: return.invoke(style, points)
             style
         } catch (e: Exception) {
             Log.e(TAG, "createProgressStyle failed: ${e.message}")
