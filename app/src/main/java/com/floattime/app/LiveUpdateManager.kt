@@ -57,13 +57,13 @@ class LiveUpdateManager(context: Context) {
             try {
                 progressStyleClass = Class.forName("android.app.Notification\$ProgressStyle")
                 setStyledByProgress = progressStyleClass
-                ?: return.getMethod("setStyledByProgress", Boolean::class.javaPrimitiveType)
+                    ?.getMethod("setStyledByProgress", Boolean::class.javaPrimitiveType)
                 setProgress = progressStyleClass
-                ?: return.getMethod("setProgress", Int::class.javaPrimitiveType)
+                    ?.getMethod("setProgress", Int::class.javaPrimitiveType)
                 setProgressSegments = progressStyleClass
-                ?: return.getMethod("setProgressSegments", List::class.java)
+                    ?.getMethod("setProgressSegments", List::class.java)
                 setProgressPoints = progressStyleClass
-                ?: return.getMethod("setProgressPoints", List::class.java)
+                    ?.getMethod("setProgressPoints", List::class.java)
 
                 segmentClass = Class.forName("android.app.Notification\$ProgressStyle\$Segment")
                 pointClass = Class.forName("android.app.Notification\$ProgressStyle\$Point")
