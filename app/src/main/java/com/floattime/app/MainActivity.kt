@@ -228,19 +228,8 @@ class MainActivity : AppCompatActivity() {
         superIslandSwitch.isChecked = enabled
 
         // 检查 Shizuku 是否可用
-        val shizukuAvailable = try {
-            val binderClass = Class.forName("moe.shizuku.api.ShizukuBinderWrapper")
-            true
-        } catch (_: Exception) {
-            false
-        }
-
-        if (!shizukuAvailable) {
-            superIslandHint.text = "需要安装 Shizuku"
-            superIslandSwitch.isEnabled = false
-        } else {
-            superIslandHint.text = "需要 Shizuku 权限"
-        }
+        // Always allow enabling - check Shizuku at service start
+        superIslandHint.text = "开启后需要 Shizuku 授权"
 
         superIslandSwitch.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean("super_island_enabled", isChecked).apply()
