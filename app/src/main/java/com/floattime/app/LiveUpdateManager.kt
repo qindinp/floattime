@@ -41,12 +41,13 @@ class LiveUpdateManager(context: Context) {
         private const val PROGRESS_MAX = 60
 
         // 反射缓存 (进程级单例)
+        // 注意: 变量名添加 "Method" 后缀以避免与 Kotlin 内置函数冲突
         private var progressStyleClass: Class<*>? = null
-        private var setStyledByProgress: Method? = null
-        private var setProgress: Method? = null
-        private var setProgressSegments: Method? = null
-        private var setProgressPoints: Method? = null
-        private var builderSetProgressStyle: Method? = null
+        private var setStyledByProgressMethod: Method? = null
+        private var setProgressMethod: Method? = null
+        private var setProgressSegmentsMethod: Method? = null
+        private var setProgressPointsMethod: Method? = null
+        private var builderSetProgressStyleMethod: Method? = null
         private var segmentClass: Class<*>? = null
         private var pointClass: Class<*>? = null
         private var reflectionCached = false
@@ -56,19 +57,19 @@ class LiveUpdateManager(context: Context) {
             if (reflectionCached) return
             try {
                 progressStyleClass = Class.forName("android.app.Notification\$ProgressStyle")
-                setStyledByProgress = progressStyleClass
+                setStyledByProgressMethod = progressStyleClass
                     ?.getMethod("setStyledByProgress", Boolean::class.javaPrimitiveType)
-                setProgress = progressStyleClass
+                setProgressMethod = progressStyleClass
                     ?.getMethod("setProgress", Int::class.javaPrimitiveType)
-                setProgressSegments = progressStyleClass
+                setProgressSegmentsMethod = progressStyleClass
                     ?.getMethod("setProgressSegments", List::class.java)
-                setProgressPoints = progressStyleClass
+                setProgressPointsMethod = progressStyleClass
                     ?.getMethod("setProgressPoints", List::class.java)
 
                 segmentClass = Class.forName("android.app.Notification\$ProgressStyle\$Segment")
                 pointClass = Class.forName("android.app.Notification\$ProgressStyle\$Point")
 
-                builderSetProgressStyle = Notification.Builder::class.java.getMethod(
+                builderSetProgressStyleMethod = Notification.Builder::class.java.getMethod(
                     "setProgressStyle", progressStyleClass
                 )
 
@@ -316,10 +317,10 @@ class LiveUpdateManager(context: Context) {
         return try {
             val cls = progressStyleClass ?: return null
             val style = cls.getDeclaredConstructor().newInstance()
-            setStyledByProgress?.invoke(style, false)
-            setProgress?.invoke(style, progress)
-            setProgressSegments?.invoke(style, segments)
-            setProgressPoints?.invoke(style, points as List<*>)
+            setStyledByProgressMethod?.invoke(style, false)
+            setProgressMethod?.invoke(style, progress)
+            setProgressSegmentsMethod?.invoke(style, segments)
+            setProgressPointsMethod?.invoke(style, points as List<*>)
             style
         } catch (e: Exception) {
             Log.e(TAG, "createProgressStyle failed: ${e.message}")
@@ -341,7 +342,7 @@ class LiveUpdateManager(context: Context) {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setForegroundServiceBehavior(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 1 else 0)
 
-            builderSetProgressStyle?.invoke(nativeBuilder, progressStyle)
+            builderSetProgressStyleMethod?.invoke(nativeBuilder, progressStyle)
             val built = nativeBuilder.build()
             extras.putAll(built.extras)
         } catch (e: Exception) {
