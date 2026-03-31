@@ -6,10 +6,19 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.graphics.Bitmap
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.xzakota.hyper.notification.focus.FocusNotification
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * HyperFocusHandler - 小米超级岛 V3 DSL 渲染器
@@ -22,6 +31,7 @@ import com.xzakota.hyper.notification.focus.FocusNotification
  * - 小岛区域（胶囊态）：显示进度环 + 时间文本
  * - 分享区域：拖拽可分享当前时间
  * - 通知栏聊天式：标准焦点通知形态
+ * - 白名单绕过：Shizuku + XmsfNetworkHelper 断网通知
  *
  * @see <a href="https://github.com/xzakota/HyperNotification">HyperNotification</a>
  */
@@ -41,6 +51,11 @@ class HyperFocusHandler(private val context: Context) {
         private const val COLOR_PROGRESS_REACH = "#1976D2"
         private const val COLOR_PROGRESS_UNREACH = "#333333"
         private const val COLOR_PROGRESS_NIGHT = "#4FC3F7"
+        private const val COLOR_ACCENT_DAY = 0xFF1976D2.toInt()
+        private const val COLOR_ACCENT_NIGHT = 0xFF4FC3F7.toInt()
+
+        // 网络断开时长 (ms)
+        private const val NETWORK_CUT_DURATION_MS = 50L
 
         // 缓存
         @Volatile
@@ -49,11 +64,25 @@ class HyperFocusHandler(private val context: Context) {
 
     private val appContext = context.applicationContext
     private val notifMgr = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private val handler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var isShowing = false
     private var lastUpdateTime = 0L
     private val throttleIntervalMs = 500L
+
+    // Shizuku 白名单绕过
+    private val shizukuHelper: ShizukuIslandHelper by lazy { ShizukuIslandHelper(appContext) }
+    private val prefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences("FloatTimePrefs", Context.MODE_PRIVATE)
+    }
+    private var networkCutJob: Job? = null
+
+    // 变更检测
+    private var lastSentParam: String? = null
+    private var lastSentColor: Int = 0
+    private var isFirstNotification = true
 
     private val cachedContentIntent: PendingIntent by lazy {
         PendingIntent.getActivity(
@@ -67,9 +96,11 @@ class HyperFocusHandler(private val context: Context) {
 
     init {
         ensureChannel()
+        shizukuHelper.init()
         Log.d(TAG, "HyperFocusHandler initialized | SDK=${Build.VERSION.SDK_INT}" +
                 " | Device=${Build.MANUFACTURER} ${Build.MODEL}" +
-                " | HyperOS=${isHyperOS()}")
+                " | HyperOS=${isHyperOS()}" +
+                " | Shizuku=${shizukuHelper.isShizukuAvailable}")
     }
 
     // =============================================
@@ -99,9 +130,9 @@ class HyperFocusHandler(private val context: Context) {
 
         try {
             val notification = buildNotification(timeStr, millisStr, source, isNight)
-            notifMgr.notify(NOTIFICATION_ID, notification)
+            notifyWithNetworkCut(notification, isFirstNotification)
+            if (isFirstNotification) isFirstNotification = false
             isShowing = true
-            Log.d(TAG, "Shown: $timeStr$millisStr | $source")
         } catch (e: Exception) {
             Log.e(TAG, "show failed: ${e.message}")
         }
@@ -117,7 +148,11 @@ class HyperFocusHandler(private val context: Context) {
         }
     }
 
-    fun destroy() = hide()
+    fun destroy() {
+        hide()
+        networkCutJob?.cancel()
+        shizukuHelper.destroy()
+    }
 
     /**
      * 将焦点通知 extras 注入到已有 Notification 中
@@ -130,6 +165,7 @@ class HyperFocusHandler(private val context: Context) {
             val progressColor = if (isNight) COLOR_PROGRESS_NIGHT else COLOR_PROGRESS_REACH
             val displayTime = timeStr + millisStr
             val displaySource = sourceDisplayName(source)
+            val accentColor = if (isNight) COLOR_ACCENT_NIGHT else COLOR_ACCENT_DAY
 
             val extras = FocusNotification.buildV3 {
                 business = "float_time"
@@ -188,7 +224,19 @@ class HyperFocusHandler(private val context: Context) {
                 }
             }
 
+            // 变更检测
+            val newParam = extras.getString("miui.focus.param")
+            if (newParam == lastSentParam && accentColor == lastSentColor && !isFirstNotification) {
+                return
+            }
+            lastSentParam = newParam
+            lastSentColor = accentColor
+
             notification.extras.putAll(extras)
+
+            // #5: 设置 notification.color
+            notification.color = accentColor
+
         } catch (e: Exception) {
             Log.e(TAG, "applyFocusExtras failed: ${e.message}")
         }
@@ -200,6 +248,7 @@ class HyperFocusHandler(private val context: Context) {
 
     private fun buildNotification(timeStr: String, millisStr: String, source: String, isNight: Boolean): Notification {
         val displayTime = timeStr + millisStr
+        val accentColor = if (isNight) COLOR_ACCENT_NIGHT else COLOR_ACCENT_DAY
 
         val notification = Notification.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
@@ -209,12 +258,61 @@ class HyperFocusHandler(private val context: Context) {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setColor(accentColor)
             .build()
 
         // 注入焦点通知 extras
         applyFocusExtras(notification, timeStr, millisStr, source, isNight)
 
         return notification
+    }
+
+    // =============================================
+    //  #4: 网络断开-通知-恢复 (Capsulyric 方案)
+    // =============================================
+
+    /**
+     * 带网络断开的 notify
+     *
+     * 流程: 断网 → notify → 50ms 后恢复
+     *
+     * 原理: 小米焦点通知白名单校验通过 xmsf (小米推送服务) 向服务器查询。
+     * 在 notify 前临时断开 xmsf 网络，校验失败会 fallback 到本地策略，
+     * 允许非白名单应用显示超级岛。
+     */
+    private fun notifyWithNetworkCut(notification: Notification, isFirst: Boolean) {
+        val blockXmsf = prefs.getBoolean("block_xmsf_network", true) && shizukuHelper.isReady
+
+        if (blockXmsf) {
+            networkCutJob?.cancel()
+            networkCutJob = scope.launch {
+                try {
+                    // 断网
+                    XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, false)
+
+                    // notify
+                    notifMgr.notify(NOTIFICATION_ID, notification)
+                    isShowing = true
+
+                    // 保持断网 50ms
+                    delay(NETWORK_CUT_DURATION_MS)
+
+                    // 恢复网络
+                    XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, true)
+
+                    Log.d(TAG, "notifyWithNetworkCut: OK")
+                } catch (e: Exception) {
+                    Log.e(TAG, "notifyWithNetworkCut failed: ${e.message}")
+                    // 降级: 直接 notify
+                    notifMgr.notify(NOTIFICATION_ID, notification)
+                    isShowing = true
+                }
+            }
+        } else {
+            // 不绕过白名单，直接 notify
+            notifMgr.notify(NOTIFICATION_ID, notification)
+            isShowing = true
+        }
     }
 
     // =============================================

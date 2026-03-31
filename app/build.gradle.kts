@@ -82,6 +82,9 @@ dependencies {
     // HyperNotification — 小米焦点通知 V3 DSL
     implementation("com.xzakota.hyper.notification:focus-api:1.4")
 
+    // Kotlin Coroutines — 协程支持
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
     // window-extensions: 运行时由 MIUI/HyperOS 系统私有实现提供，
     // 不在公共仓库，Kotlin 代码通过反射调用，不需 compileOnly 依赖
 

@@ -45,7 +45,7 @@ class IslandManager(private val context: Context) {
 
     // 三个子管理器
     private val liveIsland: LiveIslandHandler? = LiveIslandHandler.Factory.create(appContext, notifMgr)
-    private val hyperIsland: HyperFocusHandler = HyperFocusHandler(appContext)
+    private val hyperIsland: HyperFocusHandler by lazy { HyperFocusHandler(appContext) }
     private val notificationHandler: NotificationHandler by lazy {
         NotificationHandler(appContext, notifMgr)
     }
@@ -244,95 +244,6 @@ class IslandManager(private val context: Context) {
         companion object Factory {
             fun create(c: Context, n: NotificationManager): LiveIslandHandler? =
                 LhState.tryCreate(c, n)
-        }
-    }
-
-    // ==============================================================
-    //  HyperIslandHandler - MIUI HyperOS 焦点通知
-    // ==============================================================
-
-    private class HyperIslandHandler(
-        private val ctx: Context,
-        private val nm: NotificationManager
-    ) {
-        private val TAG = "HyperIslandHandler"
-        private val FOCUS_TITLE = "miui.focus.title"
-        private val FOCUS_CONTENT = "miui.focus.content"
-        private val FOCUS_ICON = "miui.focus.icon"
-        @Volatile private var cachedHyperOS: Boolean? = null
-        private var _isShowing = false
-
-        private val pi = PendingIntent.getActivity(
-            ctx, 0,
-            Intent(ctx, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val isSupported: Boolean
-            get() = isHyperOSDevice() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-
-        fun isActive() = _isShowing
-
-        fun show(timeStr: String, millisStr: String, source: String) {
-            if (!isSupported) return
-            try {
-                val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle(timeStr + millisStr)
-                    .setContentText(source)
-                    .setContentIntent(pi)
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setCategory(NotificationCompat.CATEGORY_STATUS)
-                    .setOngoing(true)
-                    .setShowWhen(false)
-                    .setOnlyAlertOnce(true)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setForegroundServiceBehavior(
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                            NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
-                        else NotificationCompat.FOREGROUND_SERVICE_DEFAULT
-                    )
-                    .build()
-
-                val extras = n.extras
-                extras.putString(FOCUS_TITLE, timeStr)
-                extras.putString(FOCUS_CONTENT, "${source} ${millisStr}")
-                extras.putInt(FOCUS_ICON, 1)
-                extras.putString("miui.focus.indicator", "dot")
-                extras.putBoolean("miui.focus.expanded", true)
-                extras.putString("miui.focus.expanded.title", "悬浮时间")
-                extras.putString("miui.focus.expanded.content", "$timeStr$millisStr\n$source\n点击打开设置")
-
-                nm.notify(NOTIFICATION_ID, n)
-                _isShowing = true
-                Log.d(TAG, "HyperIsland shown: $timeStr $source")
-            } catch (e: Exception) {
-                Log.e(TAG, "show failed: ${e.message}")
-            }
-        }
-
-        fun hide() {
-            if (_isShowing) { nm.cancel(NOTIFICATION_ID); _isShowing = false }
-        }
-
-        fun destroy() = hide()
-
-        private fun isHyperOSDevice(): Boolean {
-            cachedHyperOS?.let { return it }
-            var result = false
-            try {
-                val clazz = Class.forName("android.os.SystemProperties")
-                val prop = clazz.getMethod("get", String::class.java)
-                    .invoke(null, "ro.mi.os.version.incremental") as? String
-                result = !prop.isNullOrEmpty()
-            } catch (_: Exception) {
-                val m = Build.MANUFACTURER.lowercase()
-                result = m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
-            }
-            cachedHyperOS = result
-            return result
         }
     }
 
