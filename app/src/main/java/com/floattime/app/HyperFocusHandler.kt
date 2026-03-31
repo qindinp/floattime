@@ -183,6 +183,7 @@ class HyperFocusHandler(private val context: Context) {
                 island {
                     islandProperty = 1
 
+                    // 大岛区域（展开态）
                     bigIslandArea {
                         imageTextInfoLeft {
                             type = 1
@@ -198,28 +199,30 @@ class HyperFocusHandler(private val context: Context) {
                                 showHighlightColor = false
                             }
                         }
+                        // 大岛底部文本 → 放在 bigIslandArea 内
+                        textInfo {
+                            title = "$displaySource | $millisStr"
+                            showHighlightColor = false
+                            narrowFont = false
+                        }
                     }
 
-                    textInfo {
-                        title = "$displaySource | $millisStr"
-                        showHighlightColor = false
-                        narrowFont = false
+                    // 小岛区域（胶囊态）→ 放在 island 内
+                    smallIslandArea {
+                        combinePicInfo {
+                            progressInfo {
+                                progress = second
+                                colorReach = progressColor
+                                colorUnReach = COLOR_PROGRESS_UNREACH
+                            }
+                        }
                     }
 
+                    // 拖拽分享 → 放在 island 内
                     shareData {
                         title = "悬浮时间"
                         content = displayTime
                         shareContent = "$displayTime ($displaySource)"
-                    }
-                }
-
-                smallIslandArea {
-                    combinePicInfo {
-                        progressInfo {
-                            progress = second
-                            colorReach = progressColor
-                            colorUnReach = COLOR_PROGRESS_UNREACH
-                        }
                     }
                 }
             }

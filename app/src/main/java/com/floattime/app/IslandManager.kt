@@ -57,7 +57,7 @@ class IslandManager(private val context: Context) {
         }
         Log.d(TAG, "IslandManager init | API=${Build.VERSION.SDK_INT}" +
                 " | LiveIsland=${liveIsland != null}" +
-                " | HyperOS=${hyperIsland.isSupported}")
+                " | HyperOS=${hyperIsland.isSupported()}")
     }
 
     fun describe(): String {
@@ -397,3 +397,4 @@ object LhState {
         return null
     }
 }
+
