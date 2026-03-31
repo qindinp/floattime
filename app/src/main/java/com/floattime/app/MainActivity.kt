@@ -258,6 +258,22 @@ class MainActivity : AppCompatActivity() {
         binding.stopBtn.setBackgroundColor(stopBtnBg)
     }
 
+    // --- Notification Permission (Android 13+) ---
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    1002
+                )
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "MainActivity"
 
