@@ -44,7 +44,7 @@ jobs:
           dependency-graph: generate
 
       - name: Build with Gradle
-        run: ./gradlew clean assembleDebug --no-daemon
+        run: ./gradlew clean assembleDebug test --no-daemon
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4

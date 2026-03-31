@@ -76,4 +76,8 @@ dependencies {
 
     // window-extensions: 运行时由 MIUI/HyperOS 系统私有实现提供，
     // 不在公共仓库，Kotlin 代码通过反射调用，不需 compileOnly 依赖
+
+    // Unit Testing
+    testImplementation("org.json:json:20231013")
+    testImplementation("junit:junit:4.13.2")
 }

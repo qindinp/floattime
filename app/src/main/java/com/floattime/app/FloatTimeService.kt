@@ -17,7 +17,6 @@ import android.os.Looper
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.TimeZone
@@ -69,14 +68,7 @@ class FloatTimeService : Service() {
 
         fun isRunning(): Boolean = sIsRunning
 
-        fun calcNightMode(themeMode: Int): Boolean = when (themeMode) {
-            0 -> {
-                val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                hour >= 19 || hour < 7
-            }
-            2 -> true
-            else -> false
-        }
+        fun calcNightMode(themeMode: Int): Boolean = TimeUtils.calcNightMode(themeMode)
     }
 
     private lateinit var notifMgr: NotificationManager
@@ -337,29 +329,7 @@ class FloatTimeService : Service() {
         }
     }
 
-    private fun parseServerTime(response: String): Long {
-        try {
-            val json = JSONObject(response)
-            if (json.has("data")) {
-                val data = json.getJSONObject("data")
-                if (data.has("t")) {
-                    val ts = data.getString("t").toLongOrNull() ?: 0
-                    if (ts > 0) return if (ts < 10000000000L) ts * 1000 else ts
-                }
-            }
-            if (json.has("t")) {
-                val ts = json.getLong("t")
-                if (ts > 0) return if (ts < 10000000000L) ts * 1000 else ts
-            }
-            if (json.has("timestamp")) {
-                val ts = json.getLong("timestamp")
-                if (ts > 0) return if (ts < 10000000000L) ts * 1000 else ts
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "parseServerTime error: ${e.message}")
-        }
-        return 0
-    }
+    private fun parseServerTime(response: String): Long = TimeUtils.parseServerTime(response)
 
     private fun saveOffset() {
         val now = System.currentTimeMillis()
