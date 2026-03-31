@@ -52,6 +52,8 @@ class FloatTimeService : Service() {
         private const val SAVE_THROTTLE_MS = 5000L
         private const val NOTIFICATION_UPDATE_MIN_INTERVAL_MS = 500L
         private const val NOTIFICATION_PERSISTENCE_CHECK_INTERVAL_MS = 3000L
+        private const val FOREGROUND_START_DELAY_MS = 100L
+        private const val MAX_SYNC_RETRIES = 3
 
         // ThreadLocal SimpleDateFormat: 每线程独立实例，零锁竞争
         private val TIME_FORMATTER = ThreadLocal.withInitial {
@@ -76,6 +78,7 @@ class FloatTimeService : Service() {
     private lateinit var prefs: SharedPreferences
     private lateinit var handler: Handler
 
+    private var syncRetryCount = 0
     private var timeSource: String = "taobao"
     private var offsetMs: Long = 0
     private val isSyncing = AtomicBoolean(false)
@@ -139,7 +142,7 @@ class FloatTimeService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "startForeground error: ${e.message}")
             }
-        }, 100)
+        }, FOREGROUND_START_DELAY_MS)
 
         ensureNotificationPersistent()
         syncTime()
@@ -312,12 +315,20 @@ class FloatTimeService : Service() {
                 }
             }
         } catch (e: IOException) {
+            syncRetryCount++
+            if (syncRetryCount >= MAX_SYNC_RETRIES) {
+                postSyncFailed()
+                Log.w(TAG, "Sync failed after $MAX_SYNC_RETRIES retries")
+                syncRetryCount = 0
+                return
+            }
             postSyncFailed()
             Log.e(TAG, "syncTime error: ${e.message}")
         }
     }
 
     private fun postSyncSuccess() {
+        syncRetryCount = 0  // 成功后重置
         handler.post {
             try { islandManager.showSyncResult(true, timeSource, offsetMs) } catch (_: Exception) {}
         }
