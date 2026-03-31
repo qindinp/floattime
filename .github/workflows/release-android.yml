@@ -1,3 +1,7 @@
+# ==============================================================
+# FloatTime Release - 发布构建流程
+# Node.js 24 compatible actions
+# ==============================================================
 name: Release Android APK
 
 on:
@@ -26,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -36,7 +40,7 @@ jobs:
           cache: 'gradle'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-cache-enabled: true
           cache-write-enabled: true
@@ -64,7 +68,7 @@ jobs:
              "FloatTime-${{ steps.version.outputs.ver }}-release.apk"
 
       - name: Upload release APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: FloatTime-release-apk
           path: FloatTime-*-release.apk
