@@ -41,8 +41,24 @@ jobs:
         with:
           dependency-graph: generate
 
-      - name: Build with Gradle
-        run: ./gradlew clean assembleDebug test --no-daemon
+      - name: Lint + Test + Build
+        run: ./gradlew lint test assembleDebug --no-daemon
+
+      - name: Upload Lint Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatTime-lint-report
+          path: app/build/reports/lint-results-debug.html
+          retention-days: 14
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatTime-test-report
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
