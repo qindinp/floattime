@@ -39,8 +39,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-cache-enabled: true
-          cache-write-enabled: true
           dependency-graph: generate
 
       - name: Build with Gradle
