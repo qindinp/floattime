@@ -86,7 +86,7 @@ class LiveUpdateManager(context: Context) {
     private val notifMgr = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val handler = Handler(Looper.getMainLooper())
     private val supportsProgressStyle = Build.VERSION.SDK_INT >= 36
-    private val superIsland = SuperIslandManager(appContext)
+    private val superIsland = HyperFocusHandler(appContext)
 
     init {
         createChannel()
@@ -171,7 +171,7 @@ class LiveUpdateManager(context: Context) {
 
         // 小米超级岛
         try {
-            superIsland.applyFocusExtras(notification, timeStr, millisStr, source)
+            superIsland.applyFocusExtras(notification, timeStr, millisStr, source, isNight)
         } catch (e: Exception) {
             Log.e(TAG, "SuperIsland extras failed: ${e.message}")
         }

@@ -45,7 +45,7 @@ class IslandManager(private val context: Context) {
 
     // 三个子管理器
     private val liveIsland: LiveIslandHandler? = LiveIslandHandler.Factory.create(appContext, notifMgr)
-    private val hyperIsland: HyperIslandHandler = HyperIslandHandler(appContext, notifMgr)
+    private val hyperIsland: HyperFocusHandler = HyperFocusHandler(appContext)
     private val notificationHandler: NotificationHandler by lazy {
         NotificationHandler(appContext, notifMgr)
     }
@@ -78,7 +78,7 @@ class IslandManager(private val context: Context) {
 
     fun show(timeStr: String, millisStr: String, source: String, isNight: Boolean) {
         liveIsland?.show(timeStr, millisStr, source, isNight)
-        hyperIsland.show(timeStr, millisStr, source)
+        hyperIsland.show(timeStr, millisStr, source, isNight)
     }
 
     fun hide() {
