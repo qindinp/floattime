@@ -199,12 +199,6 @@ class HyperFocusHandler(private val context: Context) {
                                 showHighlightColor = false
                             }
                         }
-                        // 大岛底部文本 → 放在 bigIslandArea 内
-                        textInfo {
-                            title = "$displaySource | $millisStr"
-                            showHighlightColor = false
-                            narrowFont = false
-                        }
                     }
 
                     // 小岛区域（胶囊态）→ 放在 island 内
