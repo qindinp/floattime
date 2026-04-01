@@ -278,14 +278,20 @@ class HyperFocusHandler(private val context: Context) {
      * 允许非白名单应用显示超级岛。
      */
     private fun notifyWithNetworkCut(notification: Notification, isFirst: Boolean) {
-        val blockXmsf = prefs.getBoolean("block_xmsf_network", true) && shizukuHelper.isReady
+        val blockXmsfPref = prefs.getBoolean("block_xmsf_network", true)
+        val shizukuReady = shizukuHelper.isReady
+        val blockXmsf = blockXmsfPref && shizukuReady
+
+        Log.d(TAG, "notifyWithNetworkCut: blockXmsfPref=$blockXmsfPref, shizukuReady=$shizukuReady, blockXmsf=$blockXmsf")
+        Log.d(TAG, "Shizuku status: available=${shizukuHelper.isShizukuAvailable}, permission=${shizukuHelper.isPermissionGranted}, bypassed=${shizukuHelper.isWhitelistBypassed}")
 
         if (blockXmsf) {
             networkCutJob?.cancel()
             networkCutJob = scope.launch {
                 try {
                     // 断网
-                    XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, false)
+                    val cutOk = XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, false)
+                    Log.d(TAG, "Xmsf network cut: $cutOk")
 
                     // notify
                     notifMgr.notify(NOTIFICATION_ID, notification)
@@ -295,9 +301,10 @@ class HyperFocusHandler(private val context: Context) {
                     delay(NETWORK_CUT_DURATION_MS)
 
                     // 恢复网络
-                    XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, true)
+                    val restoreOk = XmsfNetworkHelper.setXmsfNetworkingEnabled(appContext, true)
+                    Log.d(TAG, "Xmsf network restore: $restoreOk")
 
-                    Log.d(TAG, "notifyWithNetworkCut: OK")
+                    Log.d(TAG, "notifyWithNetworkCut: OK (cut=$cutOk, restore=$restoreOk)")
                 } catch (e: Exception) {
                     Log.e(TAG, "notifyWithNetworkCut failed: ${e.message}")
                     // 降级: 直接 notify
@@ -307,6 +314,7 @@ class HyperFocusHandler(private val context: Context) {
             }
         } else {
             // 不绕过白名单，直接 notify
+            Log.w(TAG, "Shizuku not ready or block_xmsf disabled, notify without network cut")
             notifMgr.notify(NOTIFICATION_ID, notification)
             isShowing = true
         }
