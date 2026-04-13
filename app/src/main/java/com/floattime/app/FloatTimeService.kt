@@ -526,7 +526,7 @@ class FloatTimeService : Service() {
             ACTION_STOPWATCH_PAUSE,
             ACTION_STOPWATCH_RESUME,
             ACTION_STOPWATCH_STOP -> {
-                handleStopwatchAction(intent.action)
+                intent.action?.let { handleStopwatchAction(it) }
             }
         }
         return START_STICKY
