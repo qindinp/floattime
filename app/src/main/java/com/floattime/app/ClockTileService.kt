@@ -31,6 +31,8 @@ class ClockTileService : TileService() {
         private const val TAG = "ClockTileService"
         private const val PREFS_NAME = "FloatTimePrefs"
         private const val KEY_SERVICE_ACTIVE = "tile_service_active"
+        private const val KEY_STOPWATCH_STATE = "stopwatch_state"
+        private const val STATE_RUNNING = "running"
     }
 
     private lateinit var prefs: SharedPreferences
@@ -39,9 +41,11 @@ class ClockTileService : TileService() {
         super.onStartListening()
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
-        // 同步磁贴状态
         val isRunning = try { FloatTimeService.isRunning() } catch (_: Exception) { false }
         prefs.edit().putBoolean(KEY_SERVICE_ACTIVE, isRunning).apply()
+        if (!isRunning) {
+            prefs.edit().putString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_IDLE).apply()
+        }
         qsTile?.apply { state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE; updateTile() }
 
         Log.d(TAG, "onStartListening | isRunning=$isRunning")
@@ -57,40 +61,44 @@ class ClockTileService : TileService() {
 
         val isRunning = try { FloatTimeService.isRunning() } catch (_: Exception) { false }
 
-        if (isRunning) {
-            // 停止服务
-            stopService()
-            applyTileState(Tile.STATE_INACTIVE)
-            Log.d(TAG, "Tile clicked: stopping service")
-        } else {
-            // 启动服务
-            startService()
+        if (!isRunning) {
+            startServiceAction(FloatTimeService.ACTION_SET_MODE) {
+                putExtra("mode", "stopwatch")
+            }
+            startServiceAction(FloatTimeService.ACTION_STOPWATCH_START)
+            prefs.edit().putString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_RUNNING).apply()
             applyTileState(Tile.STATE_ACTIVE)
-            Log.d(TAG, "Tile clicked: starting service")
+            Log.d(TAG, "Tile clicked: start stopwatch")
+            return
         }
+
+        val stopwatchState = prefs.getString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_RUNNING)
+        if (stopwatchState == STATE_RUNNING) {
+            startServiceAction(FloatTimeService.ACTION_STOPWATCH_PAUSE)
+            prefs.edit().putString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_PAUSED).apply()
+            Log.d(TAG, "Tile clicked: pause stopwatch")
+        } else {
+            startServiceAction(FloatTimeService.ACTION_STOPWATCH_RESUME)
+            prefs.edit().putString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_RUNNING).apply()
+            Log.d(TAG, "Tile clicked: resume stopwatch")
+        }
+        applyTileState(Tile.STATE_ACTIVE)
     }
 
-    private fun startService() {
+    private fun startServiceAction(action: String, config: Intent.() -> Unit = {}) {
         try {
-            val intent = Intent(this, FloatTimeService::class.java)
+            val intent = Intent(this, FloatTimeService::class.java).apply {
+                this.action = action
+                config()
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
             } else {
                 startService(intent)
             }
-            qsTile?.apply { state = Tile.STATE_ACTIVE; updateTile() }
         } catch (e: Exception) {
-            Log.e(TAG, "startService failed: ${e.message}")
-            qsTile?.apply { state = Tile.STATE_UNAVAILABLE; updateTile() }
-        }
-    }
-
-    private fun stopService() {
-        try {
-            stopService(Intent(this, FloatTimeService::class.java))
-            qsTile?.apply { state = Tile.STATE_INACTIVE; updateTile() }
-        } catch (e: Exception) {
-            Log.e(TAG, "stopService failed: ${e.message}")
+            Log.e(TAG, "startServiceAction failed: ${e.message}")
+            applyTileState(Tile.STATE_UNAVAILABLE)
         }
     }
 
@@ -104,7 +112,10 @@ class ClockTileService : TileService() {
     override fun onTileRemoved() {
         super.onTileRemoved()
         Log.d(TAG, "Tile removed from Quick Settings")
-        prefs.edit().putBoolean(KEY_SERVICE_ACTIVE, false).apply()
+        prefs.edit()
+            .putBoolean(KEY_SERVICE_ACTIVE, false)
+            .putString(KEY_STOPWATCH_STATE, FloatTimeService.STOPWATCH_STATE_IDLE)
+            .apply()
     }
 
     override fun onTileAdded() {

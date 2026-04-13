@@ -354,9 +354,20 @@ class LiveUpdateManager(context: Context) {
     //  秒表功能 (预留)
     // ================================================================
 
-    fun startStopwatch() { Log.d(TAG, "startStopwatch: not implemented") }
-    fun pauseStopwatch() { Log.d(TAG, "pauseStopwatch: not implemented") }
-    fun stopStopwatch() { Log.d(TAG, "stopStopwatch: not implemented") }
+    fun startStopwatch() {
+        startServiceAction(FloatTimeService.ACTION_SET_MODE) {
+            putExtra("mode", "stopwatch")
+        }
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_START)
+    }
+
+    fun pauseStopwatch() {
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_PAUSE)
+    }
+
+    fun stopStopwatch() {
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_STOP)
+    }
 
     // ================================================================
     //  私有方法
@@ -366,7 +377,20 @@ class LiveUpdateManager(context: Context) {
         "taobao" -> "淘宝"
         "meituan" -> "美团"
         "local" -> "本地"
+        "stopwatch" -> "秒表"
         else -> source
+    }
+
+    private fun startServiceAction(action: String, config: android.content.Intent.() -> Unit = {}) {
+        val intent = android.content.Intent(appContext, FloatTimeService::class.java).apply {
+            this.action = action
+            config()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            appContext.startForegroundService(intent)
+        } else {
+            appContext.startService(intent)
+        }
     }
 
     /**

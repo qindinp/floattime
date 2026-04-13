@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -44,6 +45,25 @@ class FloatTimeService : Service() {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_OFFSET_MS = "offset_ms"
         private const val KEY_TIME_SOURCE = "time_source"
+        private const val KEY_MODE = "mode"
+        private const val KEY_STOPWATCH_STATE = "stopwatch_state"
+        private const val KEY_STOPWATCH_ACCUMULATED_MS = "stopwatch_accumulated_ms"
+
+        const val ACTION_STOP = "com.floattime.action.STOP_SERVICE"
+        const val ACTION_CHANGE_THEME = "com.floattime.action.CHANGE_THEME"
+        const val ACTION_SET_MODE = "com.floattime.action.SET_MODE"
+        const val ACTION_STOPWATCH_START = "com.floattime.action.STOPWATCH_START"
+        const val ACTION_STOPWATCH_PAUSE = "com.floattime.action.STOPWATCH_PAUSE"
+        const val ACTION_STOPWATCH_RESUME = "com.floattime.action.STOPWATCH_RESUME"
+        const val ACTION_STOPWATCH_STOP = "com.floattime.action.STOPWATCH_STOP"
+
+        private const val MODE_CLOCK = "clock"
+        private const val MODE_STOPWATCH = "stopwatch"
+
+        const val STOPWATCH_STATE_IDLE = "idle"
+        const val STOPWATCH_STATE_RUNNING = "running"
+        const val STOPWATCH_STATE_PAUSED = "paused"
+        const val STOPWATCH_STATE_STOPPED = "stopped"
 
         private const val NOTIFICATION_ID = 20240320
         private const val UPDATE_INTERVAL_MS = 200L
@@ -71,6 +91,44 @@ class FloatTimeService : Service() {
         fun isRunning(): Boolean = sIsRunning
 
         fun calcNightMode(themeMode: Int): Boolean = TimeUtils.calcNightMode(themeMode)
+
+        fun nextStopwatchState(current: String, action: String): String = when (action) {
+            ACTION_STOPWATCH_START -> STOPWATCH_STATE_RUNNING
+            ACTION_STOPWATCH_PAUSE -> if (current == STOPWATCH_STATE_RUNNING) STOPWATCH_STATE_PAUSED else current
+            ACTION_STOPWATCH_RESUME -> if (current == STOPWATCH_STATE_PAUSED) STOPWATCH_STATE_RUNNING else current
+            ACTION_STOPWATCH_STOP -> STOPWATCH_STATE_STOPPED
+            else -> current
+        }
+
+        fun computeStopwatchElapsedMs(
+            state: String,
+            accumulatedMs: Long,
+            runningBaseRealtimeMs: Long,
+            nowRealtimeMs: Long
+        ): Long {
+            val safeAccumulated = if (accumulatedMs < 0L) 0L else accumulatedMs
+            return if (state == STOPWATCH_STATE_RUNNING) {
+                val delta = (nowRealtimeMs - runningBaseRealtimeMs).coerceAtLeast(0L)
+                safeAccumulated + delta
+            } else {
+                safeAccumulated
+            }
+        }
+
+        fun formatStopwatchElapsed(elapsedMs: Long): Pair<String, String> {
+            val safe = elapsedMs.coerceAtLeast(0L)
+            val totalSeconds = safe / 1000L
+            val millis = (safe % 1000L).toInt()
+            val seconds = (totalSeconds % 60L).toInt()
+            val minutes = ((totalSeconds / 60L) % 60L).toInt()
+            val hours = (totalSeconds / 3600L).toInt()
+            val time = if (hours > 0) {
+                String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format(Locale.US, "%02d:%02d", minutes, seconds)
+            }
+            return time to String.format(Locale.US, "%03d", millis)
+        }
     }
 
     private lateinit var notifMgr: NotificationManager
@@ -80,6 +138,10 @@ class FloatTimeService : Service() {
 
     private var syncRetryCount = 0
     private var timeSource: String = "taobao"
+    private var mode: String = MODE_CLOCK
+    private var stopwatchState: String = STOPWATCH_STATE_IDLE
+    private var stopwatchAccumulatedMs: Long = 0L
+    private var stopwatchRunningBaseRealtimeMs: Long = 0L
     private var offsetMs: Long = 0
     private val isSyncing = AtomicBoolean(false)
     private var currentTimeStr: String = ""
@@ -137,7 +199,7 @@ class FloatTimeService : Service() {
         handler.postDelayed({
             try {
                 startForeground(NOTIFICATION_ID, createNotification())
-                islandManager.show(currentTimeStr, currentMillisStr, sourceDisplayName, isNightMode)
+                islandManager.show(currentTimeStr, currentMillisStr, displaySourceName, isNightMode)
                 Log.d(TAG, "Foreground + Island started")
             } catch (e: Exception) {
                 Log.e(TAG, "startForeground error: ${e.message}")
@@ -153,6 +215,14 @@ class FloatTimeService : Service() {
         themeMode = prefs.getInt(KEY_THEME_MODE, 0)
         offsetMs = prefs.getLong(KEY_OFFSET_MS, 0)
         timeSource = prefs.getString(KEY_TIME_SOURCE, "taobao") ?: "taobao"
+        mode = prefs.getString(KEY_MODE, MODE_CLOCK) ?: MODE_CLOCK
+        stopwatchState = prefs.getString(KEY_STOPWATCH_STATE, STOPWATCH_STATE_IDLE) ?: STOPWATCH_STATE_IDLE
+        stopwatchAccumulatedMs = prefs.getLong(KEY_STOPWATCH_ACCUMULATED_MS, 0L).coerceAtLeast(0L)
+        stopwatchRunningBaseRealtimeMs = if (stopwatchState == STOPWATCH_STATE_RUNNING) {
+            SystemClock.elapsedRealtime()
+        } else {
+            0L
+        }
         isNightMode = calcNightMode(themeMode)
         cachedTimezoneAbbr = getTimezoneAbbr()
     }
@@ -169,7 +239,7 @@ class FloatTimeService : Service() {
         val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
         val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
         return try {
-            islandManager.createNotification(timeStr, millisStr, sourceDisplayName, isNightMode)
+            islandManager.createNotification(timeStr, millisStr, displaySourceName, isNightMode)
         } catch (e: Exception) {
             Log.e(TAG, "createNotification error: ${e.message}")
             createFallbackNotification()
@@ -196,9 +266,21 @@ class FloatTimeService : Service() {
 
     private fun updateTime() {
         try {
-            val now = System.currentTimeMillis() + offsetMs
-            currentTimeStr = TIME_FORMATTER.get().format(Date(now))
-            currentMillisStr = MS_FORMAT.get().format(Date(now))
+            if (mode == MODE_STOPWATCH) {
+                val elapsedMs = computeStopwatchElapsedMs(
+                    state = stopwatchState,
+                    accumulatedMs = stopwatchAccumulatedMs,
+                    runningBaseRealtimeMs = stopwatchRunningBaseRealtimeMs,
+                    nowRealtimeMs = SystemClock.elapsedRealtime()
+                )
+                val (time, millis) = formatStopwatchElapsed(elapsedMs)
+                currentTimeStr = time
+                currentMillisStr = millis
+            } else {
+                val now = System.currentTimeMillis() + offsetMs
+                currentTimeStr = TIME_FORMATTER.get().format(Date(now))
+                currentMillisStr = MS_FORMAT.get().format(Date(now))
+            }
 
             val newNight = calcNightMode(themeMode)
             if (newNight != isNightMode) {
@@ -223,9 +305,9 @@ class FloatTimeService : Service() {
         try {
             val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
             val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
-            val notification = islandManager.createNotification(timeStr, millisStr, sourceDisplayName, isNightMode)
+            val notification = islandManager.createNotification(timeStr, millisStr, displaySourceName, isNightMode)
             notifMgr.notify(NOTIFICATION_ID, notification)
-            islandManager.update(timeStr, millisStr, sourceDisplayName, isNightMode)
+            islandManager.update(timeStr, millisStr, displaySourceName, isNightMode)
         } catch (e: Exception) {
             Log.e(TAG, "updateNotification error: ${e.message}")
         }
@@ -239,10 +321,10 @@ class FloatTimeService : Service() {
                         val timeStr = currentTimeStr.ifEmpty { "--:--:--" }
                         val millisStr = if (currentMillisStr.isEmpty()) ".000" else ".$currentMillisStr"
                         val notification = islandManager.createNotification(
-                            timeStr, millisStr, sourceDisplayName, isNightMode
+                            timeStr, millisStr, displaySourceName, isNightMode
                         )
                         startForeground(NOTIFICATION_ID, notification)
-                        islandManager.show(timeStr, millisStr, sourceDisplayName, isNightMode)
+                        islandManager.show(timeStr, millisStr, displaySourceName, isNightMode)
                     } catch (e: Exception) {
                         Log.e(TAG, "ensureNotificationPersistent error: ${e.message}")
                     }
@@ -356,6 +438,64 @@ class FloatTimeService : Service() {
             else -> "本地时间"
         }
 
+    private val displaySourceName: String
+        get() = if (mode == MODE_STOPWATCH) "stopwatch" else sourceDisplayName
+
+    private fun persistStopwatchState() {
+        prefs.edit()
+            .putString(KEY_MODE, mode)
+            .putString(KEY_STOPWATCH_STATE, stopwatchState)
+            .putLong(KEY_STOPWATCH_ACCUMULATED_MS, stopwatchAccumulatedMs)
+            .apply()
+    }
+
+    private fun handleStopwatchAction(action: String) {
+        val currentState = stopwatchState
+        val nextState = nextStopwatchState(currentState, action)
+        if (nextState == currentState && action != ACTION_STOPWATCH_START) return
+
+        when (action) {
+            ACTION_STOPWATCH_START -> {
+                stopwatchAccumulatedMs = 0L
+                stopwatchRunningBaseRealtimeMs = SystemClock.elapsedRealtime()
+            }
+            ACTION_STOPWATCH_PAUSE -> {
+                if (currentState == STOPWATCH_STATE_RUNNING) {
+                    stopwatchAccumulatedMs = computeStopwatchElapsedMs(
+                        state = STOPWATCH_STATE_RUNNING,
+                        accumulatedMs = stopwatchAccumulatedMs,
+                        runningBaseRealtimeMs = stopwatchRunningBaseRealtimeMs,
+                        nowRealtimeMs = SystemClock.elapsedRealtime()
+                    )
+                    stopwatchRunningBaseRealtimeMs = 0L
+                }
+            }
+            ACTION_STOPWATCH_RESUME -> {
+                if (currentState == STOPWATCH_STATE_PAUSED) {
+                    stopwatchRunningBaseRealtimeMs = SystemClock.elapsedRealtime()
+                }
+            }
+            ACTION_STOPWATCH_STOP -> {
+                stopwatchAccumulatedMs = 0L
+                stopwatchRunningBaseRealtimeMs = 0L
+            }
+        }
+
+        mode = MODE_STOPWATCH
+        stopwatchState = nextState
+        persistStopwatchState()
+        updateTime()
+    }
+
+    private fun setMode(newMode: String) {
+        mode = if (newMode == MODE_STOPWATCH) MODE_STOPWATCH else MODE_CLOCK
+        if (mode == MODE_CLOCK) {
+            stopwatchRunningBaseRealtimeMs = 0L
+        }
+        persistStopwatchState()
+        updateTime()
+    }
+
     private val versionName: String
         get() = try {
             applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0).versionName ?: "1.0"
@@ -365,18 +505,28 @@ class FloatTimeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            "STOP" -> {
+            "STOP", ACTION_STOP -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 islandManager.hide()
                 stopSelf()
             }
-            "CHANGE_THEME" -> {
-                val mode = intent.getIntExtra("mode", 0)
-                themeMode = mode
-                prefs.edit().putInt(KEY_THEME_MODE, mode).apply()
-                isNightMode = calcNightMode(mode)
+            "CHANGE_THEME", ACTION_CHANGE_THEME -> {
+                val modeValue = intent.getIntExtra("mode", 0)
+                themeMode = modeValue
+                prefs.edit().putInt(KEY_THEME_MODE, modeValue).apply()
+                isNightMode = calcNightMode(modeValue)
                 cachedTimezoneAbbr = getTimezoneAbbr()
                 islandManager.onThemeChanged(isNightMode)
+            }
+            ACTION_SET_MODE -> {
+                val requestedMode = intent.getStringExtra("mode") ?: MODE_CLOCK
+                setMode(requestedMode)
+            }
+            ACTION_STOPWATCH_START,
+            ACTION_STOPWATCH_PAUSE,
+            ACTION_STOPWATCH_RESUME,
+            ACTION_STOPWATCH_STOP -> {
+                handleStopwatchAction(intent.action)
             }
         }
         return START_STICKY
@@ -389,6 +539,7 @@ class FloatTimeService : Service() {
         timeRunnable?.let { handler.removeCallbacks(it) }
         persistenceCheckRunnable?.let { handler.removeCallbacks(it) }
         prefs.edit().putLong(KEY_OFFSET_MS, offsetMs).apply()
+        persistStopwatchState()
         super.onDestroy()
     }
 

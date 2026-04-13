@@ -332,6 +332,7 @@ class HyperFocusHandler(private val context: Context) {
         "taobao" -> "淘宝时间"
         "meituan" -> "美团时间"
         "local" -> "本地时间"
+        "stopwatch" -> "秒表"
         else -> source
     }
 

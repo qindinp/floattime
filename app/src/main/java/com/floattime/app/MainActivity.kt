@@ -20,6 +20,15 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val SERVICE_PREFS = "FloatTimePrefs"
+        private const val KEY_STOPWATCH_STATE = "stopwatch_state"
+        private const val STATE_RUNNING = "running"
+
+        fun isRunning(): Boolean = false
+    }
+
     // ViewBinding — ECC android-clean-architecture: no findViewById
     private lateinit var binding: ActivityMainBinding
 
@@ -28,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var currentTimeRunnable: Runnable? = null
+    private var stopwatchRunning = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +59,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        stopwatchRunning = readStopwatchRunningFromServiceState()
         startClockUpdates()
         updateServiceStatus()
     }
@@ -100,7 +111,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupServiceControls() {
         binding.startBtn.setOnClickListener {
-            checkOverlayPermission()
+            when {
+                !isServiceActuallyRunning() -> checkOverlayPermission()
+                stopwatchRunning -> pauseStopwatch()
+                else -> resumeStopwatch()
+            }
         }
         binding.stopBtn.setOnClickListener {
             stopFloatingService()
@@ -129,23 +144,84 @@ class MainActivity : AppCompatActivity() {
         } else {
             startService(intent)
         }
+
+        startServiceAction(FloatTimeService.ACTION_SET_MODE) {
+            putExtra("mode", "stopwatch")
+        }
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_START)
+        stopwatchRunning = true
+
         settings.isServiceRunning = true
         updateServiceStatus()
-        Toast.makeText(this, "悬浮时间已启动", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "秒表已启动", Toast.LENGTH_SHORT).show()
     }
 
     private fun stopFloatingService() {
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_STOP)
         val intent = Intent(this, FloatTimeService::class.java)
         stopService(intent)
+        stopwatchRunning = false
         settings.isServiceRunning = false
         updateServiceStatus()
-        Toast.makeText(this, "悬浮时间已停止", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "秒表已停止", Toast.LENGTH_SHORT).show()
     }
 
+    private fun pauseStopwatch() {
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_PAUSE)
+        stopwatchRunning = false
+        updateServiceStatus()
+        Toast.makeText(this, "秒表已暂停", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun resumeStopwatch() {
+        startServiceAction(FloatTimeService.ACTION_STOPWATCH_RESUME)
+        stopwatchRunning = true
+        updateServiceStatus()
+        Toast.makeText(this, "秒表继续", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun startServiceAction(action: String, config: Intent.() -> Unit = {}) {
+        val intent = Intent(this, FloatTimeService::class.java).apply {
+            this.action = action
+            config()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun readStopwatchRunningFromServiceState(): Boolean {
+        val state = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE)
+            .getString(KEY_STOPWATCH_STATE, null)
+        return state == STATE_RUNNING
+    }
+
+    private fun isServiceActuallyRunning(): Boolean =
+        try {
+            FloatTimeService.isRunning()
+        } catch (_: Exception) {
+            false
+        }
+
     private fun updateServiceStatus() {
-        val running = settings.isServiceRunning
-        binding.statusText.text = if (running) "服务运行中" else "服务未启动"
-        binding.startBtn.isEnabled = !running
+        val running = isServiceActuallyRunning()
+        settings.isServiceRunning = running
+        if (!running) {
+            stopwatchRunning = false
+        }
+        binding.statusText.text = when {
+            !running -> "秒表未启动"
+            stopwatchRunning -> "秒表运行中"
+            else -> "秒表已暂停"
+        }
+        binding.startBtn.text = when {
+            !running -> "开始"
+            stopwatchRunning -> "暂停"
+            else -> "继续"
+        }
+        binding.startBtn.isEnabled = true
         binding.stopBtn.isEnabled = running
     }
 
@@ -272,11 +348,5 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
-    }
-
-    companion object {
-        private const val TAG = "MainActivity"
-
-        fun isRunning(): Boolean = false
     }
 }

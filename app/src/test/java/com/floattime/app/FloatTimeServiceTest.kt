@@ -123,4 +123,74 @@ class FloatTimeServiceTest {
         "https://api.m.taobao.com/rest/api3.do?api=mtop.common.getTimestamp"
     else
         "https://api.meituan.com/nationalTimestamp"
+
+    // ========== 秒表状态机测试 ==========
+
+    @Test
+    fun `start transitions to running`() {
+        val next = FloatTimeService.nextStopwatchState(
+            FloatTimeService.STOPWATCH_STATE_IDLE,
+            FloatTimeService.ACTION_STOPWATCH_START
+        )
+        assertEquals(FloatTimeService.STOPWATCH_STATE_RUNNING, next)
+    }
+
+    @Test
+    fun `pause and resume transitions correctly`() {
+        val paused = FloatTimeService.nextStopwatchState(
+            FloatTimeService.STOPWATCH_STATE_RUNNING,
+            FloatTimeService.ACTION_STOPWATCH_PAUSE
+        )
+        val resumed = FloatTimeService.nextStopwatchState(
+            paused,
+            FloatTimeService.ACTION_STOPWATCH_RESUME
+        )
+        assertEquals(FloatTimeService.STOPWATCH_STATE_PAUSED, paused)
+        assertEquals(FloatTimeService.STOPWATCH_STATE_RUNNING, resumed)
+    }
+
+    @Test
+    fun `stop transitions to stopped from running`() {
+        val next = FloatTimeService.nextStopwatchState(
+            FloatTimeService.STOPWATCH_STATE_RUNNING,
+            FloatTimeService.ACTION_STOPWATCH_STOP
+        )
+        assertEquals(FloatTimeService.STOPWATCH_STATE_STOPPED, next)
+    }
+
+    @Test
+    fun `elapsed uses base realtime while running`() {
+        val elapsed = FloatTimeService.computeStopwatchElapsedMs(
+            state = FloatTimeService.STOPWATCH_STATE_RUNNING,
+            accumulatedMs = 1200L,
+            runningBaseRealtimeMs = 1000L,
+            nowRealtimeMs = 1600L
+        )
+        assertEquals(1800L, elapsed)
+    }
+
+    @Test
+    fun `elapsed is accumulated when paused`() {
+        val elapsed = FloatTimeService.computeStopwatchElapsedMs(
+            state = FloatTimeService.STOPWATCH_STATE_PAUSED,
+            accumulatedMs = 2300L,
+            runningBaseRealtimeMs = 1000L,
+            nowRealtimeMs = 5000L
+        )
+        assertEquals(2300L, elapsed)
+    }
+
+    @Test
+    fun `format stopwatch under one hour`() {
+        val (time, millis) = FloatTimeService.formatStopwatchElapsed(62_345L)
+        assertEquals("01:02", time)
+        assertEquals("345", millis)
+    }
+
+    @Test
+    fun `format stopwatch over one hour`() {
+        val (time, millis) = FloatTimeService.formatStopwatchElapsed(3_661_009L)
+        assertEquals("01:01:01", time)
+        assertEquals("009", millis)
+    }
 }
